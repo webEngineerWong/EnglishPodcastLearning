@@ -37,3 +37,5 @@ release/
 .DS_Store
 playwright-report/
 test-results/
+**/data/storage/
+**/data/uploads/

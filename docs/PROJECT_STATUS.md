@@ -12,10 +12,10 @@
 | 2 数据库与后端 | ✅ 完成 | PostgreSQL 18 (Docker) + Prisma 6 + 16 模型 + migration + seed；NestJS 全模块 + Swagger |
 | 3 Web 学习平台 | ✅ 完成 | Dashboard/课程/播放器/双语阅读/生词/收藏/导入中心；浏览器实测通过 |
 | 4 PDF 导入 | ✅ 完成 | Python(PyMuPDF) 解析 + 中英配对 + 页眉过滤 + SRT 时间戳对齐 + 校对 + 发布；真实资料实测 |
-| 5 Electron | 🔶 开发中 | 主进程/preload/渲染端完成；等 Electron 二进制下载完成即可启动 |
+| 5 Electron | ✅ 完成 | 窗口/托盘/快捷键/IPC 导入实测：渲染器(5173)与 API(3001) 连接建立；.app 打包中 |
 | 6 学习记录 | ✅ 完成 | 心跳进度/会话/统计/收藏/生词 API 实测通过 |
 | 7 存储抽象 | ✅ 完成 | LocalStorageService 实测；R2StorageService 就绪（等密钥，STORAGE_DRIVER=local） |
-| 8 完整验收 | ⏳ 待执行 | 见 NEXT_STEPS |
+| 8 完整验收 | ✅ 通过 | typecheck 13/13、test 9/9（21 tests）、lint 13/13、build 8/8 |
 | 9 交付 | ⏳ 进行中 | 文档补齐中，git 提交待执行 |
 
 ## 已完成事项（关键成果）

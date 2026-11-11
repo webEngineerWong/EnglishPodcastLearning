@@ -9,8 +9,22 @@ export class LocalStorageService implements StorageService {
   readonly root: string;
 
   constructor(root?: string) {
-    this.root = path.resolve(root ?? process.env.STORAGE_LOCAL_ROOT ?? path.join(process.cwd(), '../../data/storage'));
+    this.root = path.resolve(root ?? process.env.STORAGE_LOCAL_ROOT ?? LocalStorageService.defaultRoot());
     fs.mkdirSync(this.root, { recursive: true });
+  }
+
+  /** 相对 STORAGE_LOCAL_ROOT 以仓库根（pnpm-workspace.yaml 所在目录）为基准解析 */
+  private static defaultRoot(): string {
+    const configured = process.env.STORAGE_LOCAL_ROOT;
+    if (configured && path.isAbsolute(configured)) return configured;
+    let dir = process.cwd();
+    for (let i = 0; i < 6; i++) {
+      if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) break;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return path.join(dir, 'data/storage');
   }
 
   private resolveKey(key: string): string {
