@@ -32,6 +32,7 @@ export default function CourseDetailPage() {
   const [activeParagraphId, setActiveParagraphId] = useState<string | null>(null);
   const [showTiming, setShowTiming] = useState(false);
   const appendRef = useRef<HTMLInputElement>(null);
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const resumeMs = useMemo(() => Number(searchParams.get('resume') ?? 0), [searchParams]);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
@@ -247,38 +248,39 @@ export default function CourseDetailPage() {
         {state.loopMode === 'ab' && <Badge tone="warning">A-B</Badge>}
       </div>
 
-      {/* 双语正文：左=实时字幕（点击跳转） 右=学习资料（跟随滚动） */}
-      <div className={materials.length > 0 ? 'grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]' : ''}>
-        <Card>
-          <CardContent className="p-3 md:p-4">
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">字幕</span>
-              <span>跟随音频 · 点击跳转</span>
-            </div>
-            {paragraphs.length === 0 ? (
-              <EmptyState icon="📄" title={t('noTranscript')} />
-            ) : (
-              <BilingualReader
-                paragraphs={paragraphs}
-                activeParagraphId={activeParagraphId}
-                onParagraphClick={clickParagraph}
-                onNoTimestamp={() => undefined}
-                mode={mode}
-                autoScroll={autoScroll}
-                renderParagraphActions={renderActions}
-              />
-            )}
-          </CardContent>
-        </Card>
+      {/* 双语正文（恢复单栏：字幕在前，学习资料默认折叠在下方） */}
+      <Card>
+        <CardContent className="p-3 md:p-4">
+          {paragraphs.length === 0 ? (
+            <EmptyState icon="📄" title={t('noTranscript')} />
+          ) : (
+            <BilingualReader
+              paragraphs={paragraphs}
+              activeParagraphId={activeParagraphId}
+              onParagraphClick={clickParagraph}
+              onNoTimestamp={() => undefined}
+              mode={mode}
+              autoScroll={autoScroll}
+              renderParagraphActions={renderActions}
+            />
+          )}
+        </CardContent>
+      </Card>
 
-        {materials.length > 0 && (
-          <Card>
-            <CardContent className="p-3 md:p-4">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
-                <span>跟随音频滚动 · 点击例句跳转</span>
-              </div>
-              <div className="space-y-5">
+      {materials.length > 0 && (
+        <Card>
+          <CardContent className="p-0">
+            <button
+              className="flex w-full items-center justify-between px-4 py-3 text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setMaterialsOpen(!materialsOpen)}
+            >
+              <span>
+                📄 学习资料（{materials.map((m) => m.title).filter(Boolean).join('、')} · {materials.reduce((n, m) => n + m.paragraphs.length, 0)} 段）
+              </span>
+              <span>{materialsOpen ? '▲ 收起' : '▼ 展开'}</span>
+            </button>
+            {materialsOpen && (
+              <div className="space-y-5 border-t border-border px-4 py-4">
                 {materials.map((m) => (
                   <div key={m.id}>
                     {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
@@ -290,10 +292,10 @@ export default function CourseDetailPage() {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 学习笔记 */}
       {course.notes && (

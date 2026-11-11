@@ -357,6 +357,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const activeIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<DisplayMode>('both');
   const [autoScrollOn, setAutoScrollOn] = useState(true);
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
   const audio = course?.audios?.[0];
@@ -495,57 +496,59 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           <CardContent className="py-5 text-center text-sm text-muted-foreground">{t('noAudio')}</CardContent>
         </Card>
       )}
-      <div className={materials.length > 0 ? 'grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]' : ''}>
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">字幕</span>
-            <span>跟随音频 · 点击跳转</span>
-          </div>
-          {paragraphs.length === 0 ? (
-            <EmptyState icon="📄" title={t('noTranscript')} />
-          ) : (
-            <BilingualReader
-              paragraphs={paragraphs}
-              activeParagraphId={activeId}
-              mode={mode}
-              onParagraphClick={clickParagraph}
-              renderParagraphActions={(p) => (
-                <>
-                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
-                    ☆
-                  </button>
-                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
-                    🔤
-                  </button>
-                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
-                    ⧉
-                  </button>
-                </>
-              )}
-            />
+      {paragraphs.length === 0 ? (
+        <EmptyState icon="📄" title={t('noTranscript')} />
+      ) : (
+        <BilingualReader
+          paragraphs={paragraphs}
+          activeParagraphId={activeId}
+          mode={mode}
+          onParagraphClick={clickParagraph}
+          renderParagraphActions={(p) => (
+            <>
+              <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
+                ☆
+              </button>
+              <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
+                🔤
+              </button>
+              <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
+                ⧉
+              </button>
+            </>
           )}
-        </div>
-        {materials.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
-              <span>跟随音频滚动 · 点击例句跳转</span>
-            </div>
-            <div className="space-y-5">
-              {materials.map((m) => (
-                <div key={m.id}>
-                  {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
-                  <MaterialReader
-                    paragraphs={m.paragraphs}
-                    activeParagraphId={materialActiveIds[m.id] ?? null}
-                    followAudio={autoScrollOn}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+        />
+      )}
+
+      {materials.length > 0 && (
+        <Card className="mt-4">
+          <CardContent className="p-0">
+            <button
+              className="flex w-full items-center justify-between px-4 py-3 text-sm text-muted-foreground hover:text-foreground"
+              onClick={() => setMaterialsOpen(!materialsOpen)}
+            >
+              <span>
+                📄 学习资料（{materials.map((m) => m.title).filter(Boolean).join('、')} · {materials.reduce((n, m) => n + m.paragraphs.length, 0)} 段）
+              </span>
+              <span>{materialsOpen ? '▲ 收起' : '▼ 展开'}</span>
+            </button>
+            {materialsOpen && (
+              <div className="space-y-5 border-t border-border px-4 py-4">
+                {materials.map((m) => (
+                  <div key={m.id}>
+                    {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+                    <MaterialReader
+                      paragraphs={m.paragraphs}
+                      activeParagraphId={materialActiveIds[m.id] ?? null}
+                      followAudio={autoScrollOn}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
       {course.notes && (
         <Card className="mt-4">
           <CardContent className="p-4">
