@@ -14,7 +14,7 @@ async function bootstrap() {
   app.enableCors({
     origin: (origin, cb) => {
       const allow = (process.env.WEB_ORIGIN ?? 'http://localhost:3000,http://localhost:5173').split(',');
-      if (!origin || origin === 'null' || allow.includes(origin.trim())) return cb(null, true);
+      if (!origin || origin === 'null' || allow.includes('*') || allow.includes(origin.trim())) return cb(null, true);
       return cb(null, false);
     },
     credentials: true
