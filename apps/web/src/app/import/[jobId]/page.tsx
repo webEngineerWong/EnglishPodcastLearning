@@ -281,7 +281,7 @@ export default function ReviewPage() {
       )}
 
       {/* 发布 */}
-      {(textFiles.length > 0 || audioFiles.length > 0) && (
+      {job.status !== 'COMPLETED' && (textFiles.length > 0 || audioFiles.length > 0) && (
         <Card className="mt-4">
           <CardContent className="p-4">
             <h3 className="mb-3 text-sm font-semibold">

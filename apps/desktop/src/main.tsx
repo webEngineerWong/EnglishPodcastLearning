@@ -696,7 +696,7 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
           ))}
         </div>
 
-        {fileId && paragraphs.length > 0 && (
+        {fileId && paragraphs.length > 0 && job.status !== 'COMPLETED' && (
           <div className="mt-4 border-t border-border pt-4">
             <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t('review')}</span>

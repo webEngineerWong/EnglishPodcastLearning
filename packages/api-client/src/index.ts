@@ -78,7 +78,8 @@ export class ApiClient {
           body = null;
         }
       }
-      throw new ApiError(res.status, body);
+      const msg = typeof body === 'object' && body && 'message' in body ? String((body as { message: unknown }).message) : undefined;
+      throw new ApiError(res.status, body, msg ?? `API error ${res.status}`);
     }
     if (res.status === 204) return undefined as T;
     const ct = res.headers.get('content-type') ?? '';
