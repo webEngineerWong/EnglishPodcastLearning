@@ -5,7 +5,7 @@
 ## 立即可执行（当前会话继续）
 
 ```bash
-cd /Users/zubulunwong/codeHub/frontEnd/resources/englishHub/english-learning-platform
+cd /Users/zubulunwong/codeHub/frontEnd/resources/englishHub/english-podcast-learning
 
 # 1. 启动数据库（如未运行）
 pnpm db:up
@@ -53,10 +53,10 @@ pnpm --filter @elp/desktop package:dir   # Electron .app
 # 方式 A：安装 gh CLI 并登录
 brew install gh
 gh auth login
-gh repo create english-learning-platform --private --source=. --remote=origin --push
+gh repo create english-podcast-learning --private --source=. --remote=origin --push
 
 # 方式 B：已有 SSH key / https remote
-git remote add origin git@github.com:<你的用户名>/english-learning-platform.git
+git remote add origin git@github.com:<你的用户名>/english-podcast-learning.git
 git push -u origin main
 ```
 

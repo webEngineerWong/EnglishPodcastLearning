@@ -3,8 +3,8 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'English Learning Platform',
-  description: '英语听力学习平台：播客精听、双语阅读、词汇管理'
+  title: 'English Podcast Learning',
+  description: '英语播客学习平台：播客精听、双语阅读、词汇管理'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

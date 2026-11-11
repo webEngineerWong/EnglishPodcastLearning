@@ -3,7 +3,7 @@
 ## 总览
 
 ```
-english-learning-platform/
+english-podcast-learning/
 ├── apps/
 │   ├── web/        Next.js 15 (App Router) — 网站端，SSR/SEO
 │   ├── desktop/    Electron 33 + Vite + React — macOS 桌面端（独立渲染工程，不依赖 Next SSR）

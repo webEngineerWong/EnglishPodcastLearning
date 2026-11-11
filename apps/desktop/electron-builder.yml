@@ -1,5 +1,5 @@
 appId: dev.elp.desktop
-productName: English Learning Platform
+productName: English Podcast Learning
 directories:
   output: release
 files:

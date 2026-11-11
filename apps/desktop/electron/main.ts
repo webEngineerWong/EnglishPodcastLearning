@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // 独立 userData：避免与 dev 版互相持有单实例锁/缓存（必须在首次 getPath('userData') 前设置）
-app.setName('English Learning Platform');
+app.setName('English Podcast Learning');
 
 const isDev = !!process.env.ELP_DEV;
 const API_BASE_DEFAULT = 'http://localhost:3001';
@@ -29,7 +29,7 @@ function createWindow() {
     height: 880,
     minWidth: 960,
     minHeight: 640,
-    title: 'English Learning Platform',
+    title: 'English Podcast Learning',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#0b0f1c',
@@ -72,7 +72,7 @@ function createTray() {
       { type: 'separator' },
       { label: '退出', click: () => app.quit() }
     ]);
-    tray.setToolTip('English Learning Platform');
+    tray.setToolTip('English Podcast Learning');
     tray.setContextMenu(menu);
   } catch (e) {
     console.error('tray failed', e);

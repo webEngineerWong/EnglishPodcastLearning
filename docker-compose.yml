@@ -1,4 +1,4 @@
-name: english-learning-platform
+name: english-podcast-learning
 
 services:
   postgres:

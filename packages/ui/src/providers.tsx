@@ -41,7 +41,7 @@ export const useTheme = () => useContext(ThemeContext);
 
 // ================= i18n =================
 const zh = {
-  appName: '英语学习平台',
+  appName: '英语播客学习',
   dashboard: '学习台',
   courses: '课程',
   importCenter: '导入',
@@ -146,7 +146,7 @@ const zh = {
 
 type Dict = Record<keyof typeof zh, string>;
 const en: Dict = {
-  appName: 'English Learning Platform',
+  appName: 'English Podcast Learning',
   dashboard: 'Dashboard',
   courses: 'Courses',
   importCenter: 'Import',
