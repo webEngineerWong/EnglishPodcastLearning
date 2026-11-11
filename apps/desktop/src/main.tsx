@@ -20,7 +20,7 @@ function App() {
     <QueryClientProvider client={QueryCtx}>
       <ThemeProvider>
         <I18nProvider>
-          <Root />
+          <DesktopApp />
         </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>
