@@ -190,40 +190,174 @@ export class ImportService {
     });
   }
 
-  /** 文件名匹配：给 PARSED 文本文件配上同任务的音频/SRT */
+  /** 文件名匹配 + 双语字幕合成：PDF 用英文字幕对时间轴；纯字幕任务合成双语段落 */
   private async matchMedia(jobId: string) {
     const [texts, audios, srts] = await Promise.all([
-      this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['pdf', 'txt'] }, status: 'PARSED' } }),
+      this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['pdf', 'txt'] }, status: { in: ['PARSED', 'MATCHED'] } } }),
       this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['mp3', 'm4a', 'wav', 'mp4'] } } }),
       this.prisma.importFile.findMany({ where: { jobId, kind: 'srt' } })
     ]);
 
-    for (const t of texts) {
-      const nT = normalizeName(t.originalName);
-      // 先处理该文本对应的 SRT：解析后合并进 draft.paragraphs 时间戳
-      const srt = srts.find((s) => {
-        const nS = normalizeName(s.originalName);
-        return nS && (nS === nT || nS.includes(nT) || nT.includes(nS));
-      });
-      if (srt) {
-        if (srt.status === 'PENDING') {
-          const buf = await this.storage.getStream(srt.storageKey).then(streamToBuffer);
-          const draft = this.parseSrtDraft(buf.toString('utf-8'));
-          await this.prisma.importFile.update({ where: { id: srt.id }, data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object } });
-        }
-        await this.applySrtTimestamps(t.id, srt.id);
-        await this.prisma.importFile.update({ where: { id: srt.id }, data: { status: 'MATCHED' } });
-      }
+    type SrtDraft = { paragraphs: DraftParagraph[]; meta?: Record<string, unknown> };
+    const draftOf = new Map<string, SrtDraft>();
+    const langOf = new Map<string, 'en' | 'zh' | 'mixed'>();
 
-      const audio = audios.find((a) => {
-        const nA = normalizeName(a.originalName);
-        return nA && (nA === nT || nA.includes(nT) || nT.includes(nA));
-      });
-      if (audio) {
-        await this.prisma.importFile.update({ where: { id: audio.id }, data: { status: 'MATCHED' } });
-        await this.prisma.importFile.update({ where: { id: t.id }, data: { status: 'MATCHED' } });
+    // 1) 确保每个 SRT 已解析并判定语言（重复导入的文件同样参与合成）
+    for (const s of srts) {
+      const existing = s.parsedJson as unknown as SrtDraft | null;
+      if (existing?.paragraphs?.length) {
+        draftOf.set(s.id, existing);
+        langOf.set(s.id, (existing.meta?.language as 'en' | 'zh' | 'mixed') ?? 'mixed');
+        continue;
+      }
+      if (['PENDING', 'PARSING', 'DUPLICATE'].includes(s.status)) {
+        try {
+          const buf = await this.storage.getStream(s.storageKey).then(streamToBuffer);
+          const draft = this.parseSrtDraft(buf.toString('utf-8'));
+          draftOf.set(s.id, draft);
+          langOf.set(s.id, (draft.meta.language as 'en' | 'zh' | 'mixed') ?? 'mixed');
+          await this.prisma.importFile.update({
+            where: { id: s.id },
+            data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
+          });
+        } catch (e) {
+          await this.prisma.importFile.update({ where: { id: s.id }, data: { status: 'FAILED', error: e instanceof Error ? e.message : String(e) } });
+        }
       }
     }
+
+    const nameMatch = (a: string, b: string) => {
+      const nA = normalizeName(a);
+      const nB = normalizeName(b);
+      return Boolean(nA && nB && (nA === nB || nA.includes(nB) || nB.includes(nA)));
+    };
+
+    // 2) PDF/TXT：用英文（或 mixed）SRT 给段落对时间轴
+    for (const t of texts) {
+      const enSrt = srts.find((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? '') && nameMatch(s.originalName, t.originalName));
+      if (enSrt && draftOf.get(enSrt.id)) {
+        await this.applySrtTimestamps(t.id, enSrt.id);
+        await this.prisma.importFile.update({ where: { id: enSrt.id }, data: { status: 'MATCHED' } });
+        await this.prisma.importFile.update({ where: { id: t.id }, data: { status: 'MATCHED' } }).catch(() => undefined);
+      }
+    }
+
+    // 3) 纯字幕双语合成：同名英文 SRT + 中文 SRT（+ 可选同名音频）→ 双语段落写入英文 SRT 的 draft
+    for (const enS of srts.filter((s) => (langOf.get(s.id) ?? '') === 'en')) {
+      const zhS = srts.find((s) => (langOf.get(s.id) ?? '') === 'zh' && nameMatch(s.originalName, enS.originalName));
+      if (!zhS || !draftOf.get(enS.id) || !draftOf.get(zhS.id)) continue;
+      const audio = audios.find((a) => nameMatch(a.originalName, enS.originalName));
+      const bilingual = this.buildBilingualFromSrts(draftOf.get(enS.id)!, draftOf.get(zhS.id)!);
+      const enMeta = draftOf.get(enS.id)!.meta ?? {};
+      const meta = { ...enMeta, synthesized: 'bilingual', zhSource: zhS.originalName, audioMatched: Boolean(audio) };
+      await this.prisma.importFile.update({
+        where: { id: enS.id },
+        data: { status: 'MATCHED', paragraphCount: bilingual.length, parsedJson: { paragraphs: bilingual, meta } as object }
+      });
+      await this.prisma.importFile.update({ where: { id: zhS.id }, data: { status: 'MATCHED' } });
+      if (audio) await this.prisma.importFile.update({ where: { id: audio.id }, data: { status: 'MATCHED' } });
+    }
+
+    // 4) 音频兜底匹配：任何未匹配音频与同 norm 的 pdf/txt/英文SRT 配对
+    for (const a of audios.filter((x) => !['MATCHED', 'FAILED'].includes(x.status))) {
+      const partner = [...texts, ...srts.filter((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? ''))].find((t) =>
+        nameMatch(t.originalName, a.originalName)
+      );
+      if (partner) await this.prisma.importFile.update({ where: { id: a.id }, data: { status: 'MATCHED' } });
+    }
+  }
+
+  /**
+   * 双语字幕合成（行级配对 + 重新聚段）：
+   * 英/中字幕都是同一音频的滚动字幕，行级时间真实。以英文行为主轴，
+   * 找时间重叠 ≥60% 的中文行配对；再按句末标点（或 12s 上限）重新聚成双语段落。
+   * 未配对行保留并标记，不静默丢弃；时间戳全部来自 SRT 真实值。
+   */
+  private buildBilingualFromSrts(enDraft: { paragraphs: DraftParagraph[]; meta?: Record<string, unknown> }, zhDraft: { paragraphs: DraftParagraph[]; meta?: Record<string, unknown> }): DraftParagraph[] {
+    type RawLine = { text: string; startMs: number; endMs: number };
+    const fromDraft = (d: { paragraphs: DraftParagraph[]; meta?: Record<string, unknown> }, key: 'textEn' | 'textZh'): RawLine[] => {
+      const raw = d.meta?.rawLines as RawLine[] | undefined;
+      if (raw?.length) return raw;
+      return d.paragraphs
+        .filter((p) => typeof p.startTimeMs === 'number' && p[key])
+        .map((p) => ({ text: (p[key] ?? '') as string, startMs: p.startTimeMs!, endMs: p.endTimeMs ?? p.startTimeMs! }));
+    };
+    const enLines = fromDraft(enDraft, 'textEn');
+    const zhLines = fromDraft(zhDraft, 'textZh');
+
+    interface Pair {
+      textEn: string | null;
+      textZh: string | null;
+      startMs: number;
+      endMs: number;
+    }
+    const pairs: Pair[] = [];
+    const usedZh = new Set<number>();
+    for (const e of enLines) {
+      let best = -1;
+      let bestOverlap = 0;
+      zhLines.forEach((z, i) => {
+        if (usedZh.has(i)) return;
+        const ov = Math.min(e.endMs, z.endMs) - Math.max(e.startMs, z.startMs);
+        if (ov > bestOverlap) {
+          bestOverlap = ov;
+          best = i;
+        }
+      });
+      const eLen = Math.max(1, e.endMs - e.startMs);
+      if (best >= 0 && bestOverlap / eLen >= 0.6) {
+        usedZh.add(best);
+        pairs.push({ textEn: e.text, textZh: zhLines[best].text, startMs: e.startMs, endMs: e.endMs });
+      } else {
+        pairs.push({ textEn: e.text, textZh: null, startMs: e.startMs, endMs: e.endMs });
+      }
+    }
+    for (let i = 0; i < zhLines.length; i++) {
+      if (usedZh.has(i)) continue;
+      pairs.push({ textEn: null, textZh: zhLines[i].text, startMs: zhLines[i].startMs, endMs: zhLines[i].endMs });
+    }
+    pairs.sort((a, b) => a.startMs - b.startMs);
+
+    // 聚段：句末标点或 12s 上限
+    const out: DraftParagraph[] = [];
+    let buf: Pair[] = [];
+    const flush = () => {
+      if (buf.length === 0) return;
+      const textEn =
+        buf
+          .map((x) => x.textEn)
+          .filter(Boolean)
+          .join(' ')
+          .trim() || null;
+      const textZh =
+        buf
+          .map((x) => x.textZh)
+          .filter(Boolean)
+          .join('\n')
+          .trim() || null;
+      out.push({
+        order: 0,
+        type: 'PARAGRAPH',
+        textEn,
+        textZh,
+        startTimeMs: buf[0].startMs,
+        endTimeMs: buf[buf.length - 1].endMs,
+        confidence: textEn && textZh ? 0.85 : 0.6,
+        warnings: textEn && !textZh ? ['no_zh_match'] : !textEn ? ['zh_only'] : [],
+        reviewStatus: 'PENDING',
+        timestampConfidence: 1
+      });
+      buf = [];
+    };
+    for (const p of pairs) {
+      buf.push(p);
+      const last = p.textEn ?? p.textZh ?? '';
+      const dur = p.endMs - buf[0].startMs;
+      if (/[.!?。！？]["')\]]?\s*$/.test(last) || dur > 12000) flush();
+    }
+    flush();
+    out.forEach((p, i) => (p.order = i));
+    return out;
   }
 
   /** 用 SRT 给 PDF/TXT 草稿段落分配真实时间戳（绝不伪造：低置信度保持 null） */
@@ -353,7 +487,11 @@ export class ImportService {
       };
     });
     paragraphs.forEach((p, i) => (p.order = i));
-    return { paragraphs, meta: { parser: 'srt-internal', cues: cues.length, rolling: isRolling, segments: effective.length, rawLines } };
+    return { paragraphs, meta: { parser: 'srt-internal', cues: cues.length, rolling: isRolling, segments: effective.length, rawLines,
+      language: (() => {
+        const zhLineCount = paragraphs.filter((p) => p.textZh && isChineseDominant(p.textZh)).length;
+        return paragraphs.length && zhLineCount / paragraphs.length > 0.5 ? 'zh' : paragraphs.some((p) => p.textEn && p.textZh) ? 'mixed' : 'en';
+      })() } };
   }
 
   /** 正式课程（TranscriptParagraph）时间戳修正：仅允许显式传值 */
@@ -540,9 +678,12 @@ export class ImportService {
         .map((d) => d.importFileId)
         .filter(Boolean)
     );
+    const isPublishable = (f: { kind: string; parsedJson: unknown }) =>
+      ['pdf', 'txt'].includes(f.kind) ||
+      (f.kind === 'srt' && (f.parsedJson as { meta?: { synthesized?: string } } | null)?.meta?.synthesized === 'bilingual');
     const textFiles = job.files.filter(
       (f) =>
-        ['pdf', 'txt'].includes(f.kind) &&
+        isPublishable(f) &&
         ['PARSED', 'MATCHED'].includes(f.status) &&
         !publishedFileIds.has(f.id) &&
         (!input?.fileIds || input.fileIds.includes(f.id))
@@ -650,12 +791,14 @@ export class ImportService {
 }
 
 function cleanTitle(filename: string): string {
-  return filename
+  const cleaned = filename
     .replace(/\.[^.]+$/, '')
     .replace(/对照文本|对照|翻译|文本|学习笔记|配套音频|音频|字幕|英文|中文/g, '')
+    .replace(/[（(]\s*[）)]|\(\s*\)/g, '')
     .replace(/[_.]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim() || filename.replace(/\.[^.]+$/, '');
+    .trim();
+  return cleaned || filename.replace(/\.[^.]+$/, '').trim();
 }
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {

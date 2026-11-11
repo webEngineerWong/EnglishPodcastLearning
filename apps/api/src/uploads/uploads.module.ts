@@ -7,6 +7,7 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.module';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.tokens';
+import { fixFilename } from '../common/filename';
 import type { StorageService } from '../storage/storage.interface';
 
 const AUDIO_MIME = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-m4a', 'audio/aac', 'video/mp4'];
@@ -53,6 +54,7 @@ export class UploadsService {
   }
 
   async uploadAudio(file: Express.Multer.File, courseId: string) {
+    file.originalname = fixFilename(file.originalname);
     this.validate(file.originalname, file.mimetype, 'audio', file.size);
     const course = await this.prisma.course.findUnique({ where: { id: courseId }, select: { id: true } });
     if (!course) throw new NotFoundException(`Course ${courseId} not found`);
@@ -80,6 +82,7 @@ export class UploadsService {
   }
 
   async uploadDocument(file: Express.Multer.File, courseId?: string, kind?: 'pdf' | 'txt' | 'srt') {
+    file.originalname = fixFilename(file.originalname);
     this.validate(file.originalname, file.mimetype, 'document', file.size);
     if (courseId) {
       const course = await this.prisma.course.findUnique({ where: { id: courseId }, select: { id: true } });
