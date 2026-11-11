@@ -11,10 +11,10 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@elp/types": "workspace:*",
     "@elp/api-client": "workspace:*",
     "@elp/learning-core": "workspace:*",
     "@elp/player": "workspace:*",
+    "@elp/types": "workspace:*",
     "@elp/ui": "workspace:*",
     "@tanstack/react-query": "^5.62.11",
     "clsx": "^2.1.1",
@@ -23,6 +23,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

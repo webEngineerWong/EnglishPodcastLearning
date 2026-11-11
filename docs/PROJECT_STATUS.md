@@ -1,7 +1,7 @@
 # 项目状态（PROJECT_STATUS）
 
 > 断点恢复入口：每次继续开发前，先读本文件与 `docs/NEXT_STEPS.md`。
-> 最后更新：2026-11-12（Phase 0–4 完成并通过真实数据测试；Phase 5 Electron 开发中）
+> 最后更新：2026-11-12（Phase 0–8 全部完成；.app 已产出；待 GitHub 授权推送）
 
 ## 当前阶段总览
 
@@ -16,7 +16,7 @@
 | 6 学习记录 | ✅ 完成 | 心跳进度/会话/统计/收藏/生词 API 实测通过 |
 | 7 存储抽象 | ✅ 完成 | LocalStorageService 实测；R2StorageService 就绪（等密钥，STORAGE_DRIVER=local） |
 | 8 完整验收 | ✅ 通过 | typecheck 13/13、test 9/9（21 tests）、lint 13/13、build 8/8 |
-| 9 交付 | ⏳ 进行中 | 文档补齐中，git 提交待执行 |
+| 9 交付 | ✅ 完成 | 3 次 git 提交；docs 全套；.app 产物；GitHub 推送命令见 NEXT_STEPS |
 
 ## 已完成事项（关键成果）
 
