@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { I18nProvider, ThemeProvider, useI18n, BilingualReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, type DisplayMode } from '@elp/ui';
+import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, type DisplayMode } from '@elp/ui';
 import { LayoutDashboard, BookOpen, Download, BookMarked, Star, Play } from 'lucide-react';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
 import type { ImportJobDto, TranscriptParagraphDto } from '@elp/types';
@@ -356,6 +356,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<DisplayMode>('both');
+  const [autoScrollOn, setAutoScrollOn] = useState(true);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
   const audio = course?.audios?.[0];
@@ -530,15 +531,14 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
               <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
               <span>跟随音频滚动 · 点击例句跳转</span>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-5">
               {materials.map((m) => (
                 <div key={m.id}>
-                  {m.title && <div className="mb-1 text-xs font-medium text-muted-foreground">📄 {m.title}</div>}
-                  <BilingualReader
+                  {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+                  <MaterialReader
                     paragraphs={m.paragraphs}
                     activeParagraphId={materialActiveIds[m.id] ?? null}
-                    mode={mode}
-                    onParagraphClick={clickParagraph}
+                    followAudio={autoScrollOn}
                   />
                 </div>
               ))}

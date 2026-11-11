@@ -11,7 +11,7 @@ import {
   usePlayerState,
   type AudioEngine
 } from '@elp/player';
-import { BilingualReader, findActiveParagraph, type DisplayMode } from '@elp/ui';
+import { BilingualReader, MaterialReader, findActiveParagraph, type DisplayMode } from '@elp/ui';
 import type { TranscriptParagraphDto } from '@elp/types';
 import { api, assetUrl } from '@/lib/api';
 import { DifficultyBadge, PageHeader } from '@/components/shell';
@@ -278,19 +278,14 @@ export default function CourseDetailPage() {
                 <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
                 <span>跟随音频滚动 · 点击例句跳转</span>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {materials.map((m) => (
                   <div key={m.id}>
-                    {m.title && <div className="mb-1 text-xs font-medium text-muted-foreground">📄 {m.title}</div>}
-                    <BilingualReader
+                    {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+                    <MaterialReader
                       paragraphs={m.paragraphs}
                       activeParagraphId={materialActiveIds[m.id] ?? null}
-                      onParagraphClick={clickParagraph}
-                      onNoTimestamp={() => undefined}
-                      mode={mode}
-                      autoScroll={autoScroll}
-                      fontSize="sm"
-                      renderParagraphActions={renderActions}
+                      followAudio={autoScroll}
                     />
                   </div>
                 ))}
