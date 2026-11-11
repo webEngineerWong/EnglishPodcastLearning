@@ -7,11 +7,14 @@ import { IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator'
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
 import { UserResolver } from '../common/current-user';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.tokens';
 import type { StorageService } from '../storage/storage.interface';
-import { ParserClient } from './parser-client';
+import { ParserClient, type ParserResult } from './parser-client';
+import { fixFilename } from '../common/filename';
+import { contentKey, sha256Of } from '../common/content-address';
 import {
   assignTimestampsFromSrt,
   isChineseDominant,
@@ -86,19 +89,55 @@ export class ImportService {
     });
 
     for (const f of files) {
+      f.originalname = fixFilename(f.originalname);
       const kind = kindOf(f.originalname);
       if (!kind) throw new BadRequestException(`不支持的文件类型: ${f.originalname}`);
       if (f.size > MAX_BYTES) throw new BadRequestException(`${f.originalname} 超过大小限制`);
 
-      const sha256 = createHash('sha256').update(f.buffer).digest('hex');
-      const date = new Date().toISOString().slice(0, 10);
-      const rand = Math.random().toString(36).slice(2, 8);
-      const key = `imports/${date}/${Date.now()}-${rand}-${f.originalname.replace(/[^\w.\-\u4e00-\u9fff]/g, '_')}`;
-      await this.storage.upload(f.buffer, key, f.mimetype || 'application/octet-stream');
+      // 内容寻址（借鉴 GitHub blob）：同 sha256 全平台只存一份、解析结果直接复用
+      const sha256 = sha256Of(f.buffer);
+      const existingObject = await this.prisma.storageObject.findFirst({ where: { sha256 }, orderBy: { createdAt: 'desc' }, select: { key: true } });
+      let key: string;
+      if (existingObject) {
+        key = existingObject.key; // 同内容文件：复用已有存储对象，不重复写盘
+      } else {
+        key = contentKey(sha256, f.originalname);
+        await this.storage.upload(f.buffer, key, f.mimetype || 'application/octet-stream');
+        await this.prisma.storageObject.upsert({
+          where: { key },
+          update: {},
+          create: { key, mimeType: f.mimetype || 'application/octet-stream', sizeBytes: f.size, sha256 }
+        });
+      }
 
-      // 重复文件检测：同名同哈希曾经导入过
-      const dup = await this.prisma.importFile.findFirst({ where: { sha256, status: { in: ['PARSED', 'MATCHED', 'PARSING'] } }, select: { id: true } });
+      // 解析结果复用：同内容文件此前解析成功 → 直接引用 parsedJson，秒级完成
+      const priorParsed = await this.prisma.importFile.findFirst({
+        where: { sha256, status: { in: ['PARSED', 'MATCHED'] }, parsedJson: { not: Prisma.DbNull } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, parsedJson: true, paragraphCount: true, status: true }
+      });
 
+      const AUDIO_KINDS_SET = ['mp3', 'm4a', 'wav', 'mp4'];
+      if (priorParsed && !AUDIO_KINDS_SET.includes(kind)) {
+        // 文本类：复用解析结果（状态沿用 PARSED/MATCHED；MATCHED 关系在 matchMedia 重新判定）
+        await this.prisma.importFile.create({
+          data: {
+            jobId: job.id,
+            kind,
+            originalName: f.originalname,
+            storageKey: key,
+            sha256,
+            sizeBytes: f.size,
+            status: 'PARSED',
+            paragraphCount: priorParsed.paragraphCount,
+            parsedJson: priorParsed.parsedJson as object,
+            error: null
+          }
+        });
+        continue;
+      }
+
+      // 音频无解析产物；完全相同的文件重复导入时仍登记（可发布），仅标记复用来源
       await this.prisma.importFile.create({
         data: {
           jobId: job.id,
@@ -107,8 +146,8 @@ export class ImportService {
           storageKey: key,
           sha256,
           sizeBytes: f.size,
-          status: dup ? 'DUPLICATE' : 'PENDING',
-          error: dup ? `与已导入文件重复 (file ${dup.id})` : null
+          status: 'PENDING',
+          error: priorParsed ? null : null
         }
       });
     }
@@ -118,65 +157,126 @@ export class ImportService {
     return this.getJob(job.id);
   }
 
-  /** 后台任务：逐文件解析；文本文件之间做 SRT 匹配、MP3 文件名匹配 */
+  /** 后台任务：批量解析（PDF 单进程批量模式）+ 实时进度 + SRT/MP3 匹配 */
   async processJob(jobId: string): Promise<void> {
     await this.prisma.importJob.update({ where: { id: jobId }, data: { status: 'RUNNING' } });
     const files = await this.prisma.importFile.findMany({ where: { jobId, status: { in: ['PENDING'] } }, orderBy: { createdAt: 'asc' } });
+    let processed = 0;
+    const tick = async (extra: Record<string, unknown> = {}) => {
+      processed++;
+      await this.prisma.importJob.update({ where: { id: jobId }, data: { processedFiles: processed, ...extra } }).catch(() => undefined);
+    };
 
-    for (const f of files) {
+    // ---------- PDF：批量解析（单 Python 进程处理全部待解析 PDF，消除 N 次启动开销） ----------
+    const pdfs = files.filter((f) => f.kind === 'pdf');
+    if (pdfs.length > 0) {
+      const localPaths = new Map<string, string>(); // fileId -> localPath
+      for (const f of pdfs) {
+        try {
+          localPaths.set(f.id, await this.fetchToLocal(f.storageKey, f.originalName));
+        } catch (e) {
+          await this.prisma.importFile.update({ where: { id: f.id }, data: { status: 'FAILED', error: e instanceof Error ? e.message : String(e) } });
+          await tick();
+        }
+      }
+      const paths = [...localPaths.values()];
+      if (paths.length > 0) {
+        let batchResults: { ok: boolean; input: string; result?: ParserResult; error?: string }[] = [];
+        try {
+          batchResults = await this.parser.parseBatch(paths);
+        } catch (e) {
+          this.logger.warn(`batch parse failed, fallback to single: ${e instanceof Error ? e.message : e}`);
+        }
+        const byPath = new Map(batchResults.map((r) => [r.input, r]));
+        for (const f of pdfs) {
+          const localPath = localPaths.get(f.id);
+          if (!localPath) continue;
+          const r = byPath.get(localPath);
+          try {
+            if (!r) throw new Error('批量解析无结果（回退解析也失败）');
+            if (!r.ok || !r.result) throw new Error(r.error ?? '批量解析失败');
+            const parsed = r.result;
+            const draft: { paragraphs: DraftParagraph[]; meta: Record<string, unknown> } = {
+              paragraphs: parsed.paragraphs.map((p, i) => ({
+                order: i,
+                type: p.type,
+                textEn: p.textEn ?? null,
+                textZh: p.textZh ?? null,
+                pageStart: p.pageStart ?? null,
+                pageEnd: p.pageEnd ?? null,
+                confidence: p.confidence,
+                warnings: p.warnings ?? [],
+                startTimeMs: null,
+                endTimeMs: null,
+                reviewStatus: 'PENDING' as const,
+                timestampConfidence: null
+              })),
+              meta: { parser: 'pymupdf', ...(parsed.meta ?? {}), needsOcr: parsed.needsOcr ?? [] }
+            };
+            await this.prisma.importFile.update({
+              where: { id: f.id },
+              data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
+            });
+          } catch (e) {
+            // 批量无结果时回退单文件解析一次
+            try {
+              const parsed = await this.parser.parsePdf(localPath);
+              const draft: { paragraphs: DraftParagraph[]; meta: Record<string, unknown> } = {
+                paragraphs: parsed.paragraphs.map((p, i) => ({
+                  order: i,
+                  type: p.type,
+                  textEn: p.textEn ?? null,
+                  textZh: p.textZh ?? null,
+                  pageStart: p.pageStart ?? null,
+                  pageEnd: p.pageEnd ?? null,
+                  confidence: p.confidence,
+                  warnings: p.warnings ?? [],
+                  startTimeMs: null,
+                  endTimeMs: null,
+                  reviewStatus: 'PENDING' as const,
+                  timestampConfidence: null
+                })),
+                meta: { parser: 'pymupdf', ...(parsed.meta ?? {}), needsOcr: parsed.needsOcr ?? [] }
+              };
+              await this.prisma.importFile.update({
+                where: { id: f.id },
+                data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
+              });
+            } catch (e2) {
+              await this.prisma.importFile.update({
+                where: { id: f.id },
+                data: { status: 'FAILED', error: e2 instanceof Error ? e2.message : String(e2) }
+              });
+            }
+          }
+          await fs.promises.rm(localPath, { force: true }).catch(() => undefined);
+          await tick();
+        }
+      }
+    }
+
+    // ---------- TXT / SRT：内存解析（快） ----------
+    for (const f of files.filter((x) => x.kind === 'txt' || x.kind === 'srt')) {
       try {
         await this.prisma.importFile.update({ where: { id: f.id }, data: { status: 'PARSING' } });
-        if (AUDIO_KINDS.includes(f.kind)) {
-          // 音频文件等待文本文件解析完成后做名称匹配（见 matchMedia）
-          await this.prisma.importFile.update({ where: { id: f.id }, data: { status: 'PENDING' } });
-          continue;
-        }
-        if (f.kind === 'pdf') {
-          const localPath = await this.fetchToLocal(f.storageKey, f.originalName);
-          const parsed = await this.parser.parsePdf(localPath);
-          const draft: { paragraphs: DraftParagraph[]; meta: Record<string, unknown> } = {
-            paragraphs: parsed.paragraphs.map((p, i) => ({
-              order: i,
-              type: p.type,
-              textEn: p.textEn ?? null,
-              textZh: p.textZh ?? null,
-              pageStart: p.pageStart ?? null,
-              pageEnd: p.pageEnd ?? null,
-              confidence: p.confidence,
-              warnings: p.warnings ?? [],
-              startTimeMs: null,
-              endTimeMs: null,
-              reviewStatus: 'PENDING' as const,
-              timestampConfidence: null
-            })),
-            meta: { parser: 'pymupdf', ...(parsed.meta ?? {}), needsOcr: parsed.needsOcr ?? [] }
-          };
-          await this.prisma.importFile.update({
-            where: { id: f.id },
-            data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
-          });
-          await fs.promises.rm(localPath, { force: true });
-        } else if (f.kind === 'txt') {
-          const buf = await this.storage.getStream(f.storageKey).then(streamToBuffer);
-          const draft = this.parseTxt(buf.toString('utf-8'));
-          await this.prisma.importFile.update({
-            where: { id: f.id },
-            data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
-          });
-        } else if (f.kind === 'srt') {
-          const buf = await this.storage.getStream(f.storageKey).then(streamToBuffer);
-          const draft = this.parseSrtDraft(buf.toString('utf-8'));
-          await this.prisma.importFile.update({
-            where: { id: f.id },
-            data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
-          });
-        }
+        const buf = await this.storage.getStream(f.storageKey).then(streamToBuffer);
+        const draft = f.kind === 'txt' ? this.parseTxt(buf.toString('utf-8')) : this.parseSrtDraft(buf.toString('utf-8'));
+        await this.prisma.importFile.update({
+          where: { id: f.id },
+          data: { status: 'PARSED', paragraphCount: draft.paragraphs.length, parsedJson: draft as object, error: null }
+        });
       } catch (e) {
         await this.prisma.importFile.update({
           where: { id: f.id },
           data: { status: 'FAILED', error: e instanceof Error ? e.message : String(e) }
         });
       }
+      await tick();
+    }
+
+    // ---------- 音频：等待 matchMedia 命名匹配 ----------
+    for (const f of files.filter((x) => AUDIO_KINDS.includes(x.kind))) {
+      await tick();
     }
 
     await this.matchMedia(jobId);
@@ -225,12 +325,6 @@ export class ImportService {
         }
       }
     }
-
-    const nameMatch = (a: string, b: string) => {
-      const nA = normalizeName(a);
-      const nB = normalizeName(b);
-      return Boolean(nA && nB && (nA === nB || nA.includes(nB) || nB.includes(nA)));
-    };
 
     // 2) PDF/TXT：用英文（或 mixed）SRT 给段落对时间轴
     for (const t of texts) {
@@ -705,7 +799,7 @@ export class ImportService {
           title,
           difficulty: 3,
           tags: [],
-          categoryId: input?.categoryId,
+          categoryId: input?.categoryId || undefined,
           status: 'PUBLISHED',
           createdById: userId,
           sourceJobId: jobId
@@ -728,9 +822,10 @@ export class ImportService {
 
       // 匹配的音频 → AudioAsset
       const nT = normalizeName(tf.originalName);
-      const audioFile = job.files.find((a) => AUDIO_KINDS.includes(a.kind as ImportFileKind) && a.status === 'MATCHED' && normalizeName(a.originalName) && (normalizeName(a.originalName) === nT || normalizeName(a.originalName).includes(nT) || nT.includes(normalizeName(a.originalName))));
+      const audioFile = job.files.find((a) => AUDIO_KINDS.includes(a.kind as ImportFileKind) && a.status === 'MATCHED' && nameMatch(a.originalName, tf.originalName));
       let audioAssetId: string | undefined;
       if (audioFile) {
+        this.logger.log(`publish step4a: audioFile=${audioFile.originalName.slice(0, 20)} status=${audioFile.status}`);
         const audioAsset = await this.prisma.audioAsset.create({
           data: {
             courseId: course.id,
@@ -743,18 +838,23 @@ export class ImportService {
         });
         audioAssetId = audioAsset.id;
         // 音频也保留到 DocumentAsset 以便追溯（kind mp3）
-        await this.prisma.documentAsset.create({
-          data: {
-            courseId: course.id,
-            kind: audioFile.kind === 'mp4' ? 'mp4' : (audioFile.kind as 'pdf' | 'txt' | 'srt'),
-            storageKey: audioFile.storageKey,
-            originalName: audioFile.originalName,
-            mimeType: 'audio/mpeg',
-            sizeBytes: audioFile.sizeBytes,
-            sha256: audioFile.sha256,
-            importFileId: audioFile.id
-          }
-        });
+        await this.prisma.documentAsset
+          .create({
+            data: {
+              courseId: course.id,
+              kind: audioFile.kind === 'mp4' ? 'mp4' : (audioFile.kind as 'pdf' | 'txt' | 'srt'),
+              storageKey: audioFile.storageKey,
+              originalName: audioFile.originalName,
+              mimeType: 'audio/mpeg',
+              sizeBytes: audioFile.sizeBytes,
+              sha256: audioFile.sha256,
+              importFileId: audioFile.id
+            }
+          })
+          .catch((e) => {
+            // 追溯记录失败不影响发布（importFileId 唯一冲突 = 该音频已被其他课程关联）
+            this.logger.warn(`audio document asset skip: ${e instanceof Error ? e.message.slice(0, 80) : e}`);
+          });
       }
 
       // 正式 Transcript
@@ -790,10 +890,26 @@ export class ImportService {
   }
 }
 
+/** 文件名匹配：规范化相等 或 集数编号相等（episode1 不会误配 episode10-13） */
+function nameMatch(a: string, b: string): boolean {
+  const nA = normalizeName(a);
+  const nB = normalizeName(b);
+  if (nA && nB && nA === nB) return true;
+  const eA = episodeKey(a);
+  const eB = episodeKey(b);
+  return Boolean(eA && eB && eA === eB);
+}
+
+/** 提取文件名中的集数编号（Episode 12 / ep12 / 第12集 等），用于跨后缀精确匹配 */
+function episodeKey(name: string): string | null {
+  const m = name.match(/(?:episode|ep|第)\s*[_-]?\s*(\d{1,4})\s*集?/i);
+  return m ? `ep${m[1]}` : null;
+}
+
 function cleanTitle(filename: string): string {
   const cleaned = filename
     .replace(/\.[^.]+$/, '')
-    .replace(/对照文本|对照|翻译|文本|学习笔记|配套音频|音频|字幕|英文|中文/g, '')
+    .replace(/中英文对照|中英对照|双语对照|对照文本|对照|翻译|文本|学习笔记|配套音频|音频|字幕|英文|中文/g, '')
     .replace(/[（(]\s*[）)]|\(\s*\)/g, '')
     .replace(/[_.]+/g, ' ')
     .replace(/\s+/g, ' ')

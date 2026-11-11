@@ -197,7 +197,7 @@ export class CoursesService {
         notes: input.notes,
         difficulty: input.difficulty ?? 3,
         tags: input.tags ?? [],
-        categoryId: input.categoryId,
+        categoryId: input.categoryId || undefined,
         createdById: userId,
         status: 'PUBLISHED'
       }

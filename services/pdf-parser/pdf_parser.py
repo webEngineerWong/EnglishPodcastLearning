@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import unicodedata
+import time
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
 # 页眉页脚典型噪音：公众号名、日期、页码、"第x页"
@@ -322,57 +323,32 @@ def pair_paragraphs(paragraphs):
             i += 1
     return out
 
-def main():
-    ap = argparse.ArgumentParser(description="PDF bilingual parser")
-    ap.add_argument("input", help="PDF 文件路径")
-    ap.add_argument("--out", default=None, help="输出 JSON 路径")
-    ap.add_argument("--min-header-repeat", type=float, default=0.5, help="页眉/页脚重复阈值(占页数比例)")
-    args = ap.parse_args()
+def parse_one(input_path: str, min_header_repeat: float = 0.5) -> dict:
+    """解析单个 PDF，返回结果 dict（不写文件）。"""
+    import fitz  # PyMuPDF
+    from collections import Counter, defaultdict
 
-    try:
-        import fitz  # PyMuPDF
-    except ImportError:
-        print("ERROR: PyMuPDF not installed. Run: pip install pymupdf", file=sys.stderr)
-        sys.exit(3)
-
-    doc = fitz.open(args.input)
+    doc = fitz.open(input_path)
     blocks, needs_ocr = extract_blocks(doc)
-
-    # 估算正文字号（出现最多的字号）
-    from collections import Counter
 
     size_counter = Counter(b["size"] for b in blocks)
     body_size = size_counter.most_common(1)[0][0] if size_counter else 12
 
-    # 页眉/页脚检测：取每页顶部/底部 15% 区域的行
-    pages_lines = []
     page_heights = {pno + 1: doc[pno].rect.height for pno in range(doc.page_count)}
-    for b in blocks:
-        pass
-    # 重新按页组织（用 bbox 判断区域）
-    from collections import defaultdict
-
     page_zone_lines = defaultdict(list)
     for b in blocks:
         top = b["bbox"][1]
         bottom = b["bbox"][3]
         h = page_heights.get(b["page"], 800)
-        lines = b["text"].split("\n")
         if top < h * 0.12 or bottom > h * 0.88:
-            for l in lines:
+            for l in b["text"].split("\n"):
                 if l.strip():
                     page_zone_lines[b["page"]].append((l.strip(), b["page"]))
-    pages_lines = [page_zone_lines[p] for p in sorted(page_zone_lines.keys())]
-    noisy = detect_noise_lines(pages_lines, args.min_header_repeat)
+    pages_lines = [page_zone_lines[pg] for pg in sorted(page_zone_lines.keys())]
+    noisy = detect_noise_lines(pages_lines, min_header_repeat)
     noisy_count = len(noisy)
 
-    filtered_blocks = [
-        b
-        for b in blocks
-        if not any(normalize_line(l) in noisy for l in b["text"].split("\n") if l.strip())
-    ]
-
-    paragraphs_raw = group_paragraphs(filtered_blocks, noisy, body_size)
+    paragraphs_raw = group_paragraphs(blocks, noisy, body_size)
     paired = pair_paragraphs(paragraphs_raw)
 
     result_paragraphs = []
@@ -392,7 +368,6 @@ def main():
             }
         )
 
-    # 统计
     n_en = sum(1 for p in result_paragraphs if p["textEn"])
     n_zh = sum(1 for p in result_paragraphs if p["textZh"])
     n_both = sum(1 for p in result_paragraphs if p["textEn"] and p["textZh"])
@@ -400,16 +375,16 @@ def main():
 
     result = {
         "file": {
-            "name": os.path.basename(args.input),
-            "sizeBytes": os.path.getsize(args.input),
-            "sha256": sha256_file(args.input),
+            "name": os.path.basename(input_path),
+            "sizeBytes": os.path.getsize(input_path),
+            "sha256": sha256_file(input_path),
             "pages": doc.page_count,
         },
         "meta": {
             "parser": "pymupdf",
             "bodySize": body_size,
             "noiseLinesRemoved": noisy_count,
-            "minHeaderRepeat": args.min_header_repeat,
+            "minHeaderRepeat": min_header_repeat,
             "stats": {
                 "paragraphs": len(result_paragraphs),
                 "withEnglish": n_en,
@@ -421,12 +396,56 @@ def main():
         "needsOcr": needs_ocr,
         "paragraphs": result_paragraphs,
     }
+    doc.close()
+    return result
 
-    out = args.out or (args.input + ".parsed.json")
+
+def main():
+    ap = argparse.ArgumentParser(description="PDF bilingual parser")
+    ap.add_argument("input", nargs="*", help="PDF 文件路径（可多个）")
+    ap.add_argument("--out", default=None, help="输出 JSON 路径（单文件）或 JSONL 路径（批量）")
+    ap.add_argument("--min-header-repeat", type=float, default=0.5, help="页眉/页脚重复阈值(占页数比例)")
+    ap.add_argument("--batch", action="store_true", help="批量模式：多文件输出 JSONL")
+    args = ap.parse_args()
+
+    try:
+        import pymupdf  # noqa: F401  提前校验依赖
+    except ImportError:
+        try:
+            import fitz  # noqa: F401
+        except ImportError:
+            print("ERROR: PyMuPDF not installed. Run: pip install pymupdf", file=sys.stderr)
+            sys.exit(3)
+
+    if not args.input:
+        print("ERROR: no input files", file=sys.stderr)
+        sys.exit(2)
+
+    # 批量模式：多文件 → JSONL（单进程，消除 N 次 Python/PyMuPDF 启动开销）
+    if len(args.input) > 1 or (args.out or "").endswith(".jsonl"):
+        out = args.out or (args.input[0] + ".batch.jsonl")
+        t0 = time.time()
+        with open(out, "w", encoding="utf-8") as f:
+            for idx, path in enumerate(args.input, 1):
+                try:
+                    result = parse_one(path, args.min_header_repeat)
+                    f.write(json.dumps({"ok": True, "input": path, "result": result}, ensure_ascii=False) + "\n")
+                    st = result["meta"]["stats"]
+                    print(f"[{idx}/{len(args.input)}] {os.path.basename(path)} paras={st['paragraphs']} both={st['withBoth']}", flush=True)
+                except Exception as e:  # 单文件失败不拖垮整批
+                    f.write(json.dumps({"ok": False, "input": path, "error": str(e)}, ensure_ascii=False) + "\n")
+                    print(f"[{idx}/{len(args.input)}] {os.path.basename(path)} FAILED: {e}", file=sys.stderr, flush=True)
+        print(f"BATCH OK files={len(args.input)} seconds={round(time.time() - t0, 2)}")
+        return
+
+    # 单文件模式（保持向后兼容）
+    result = parse_one(args.input[0], args.min_header_repeat)
+    out = args.out or (args.input[0] + ".parsed.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1)
-    print(f"OK pages={doc.page_count} paragraphs={len(result_paragraphs)} both={n_both} lowConf={low_conf} needsOcr={len(needs_ocr)}")
-    doc.close()
+    st = result["meta"]["stats"]
+    print(f"OK pages={result['file']['pages']} paragraphs={st['paragraphs']} both={st['withBoth']} lowConf={st['lowConfidence']} needsOcr={len(result['needsOcr'])}")
+
 
 if __name__ == "__main__":
     main()

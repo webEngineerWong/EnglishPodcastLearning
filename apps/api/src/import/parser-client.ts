@@ -50,6 +50,46 @@ export class ParserClient {
     return path.join(this.findRepoRoot(), 'services/pdf-parser/pdf_parser.py');
   }
 
+  /**
+   * 批量解析：单 Python 进程解析多个 PDF（JSONL 输出），
+   * 消除每篇一次的 Python/PyMuPDF 启动开销；部分失败不影响整批。
+   */
+  async parseBatch(absPaths: string[]): Promise<{ ok: boolean; input: string; result?: ParserResult; error?: string }[]> {
+    const script = this.scriptPath();
+    if (!fs.existsSync(script)) throw new ServiceUnavailableException(`PDF parser script not found: ${script}`);
+    const bin = this.pythonBin();
+    const outPath = `/tmp/elp-parser/batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jsonl`;
+    await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
+    const args = [script, '--batch', '--out', outPath, ...absPaths];
+
+    const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn(bin, args, { cwd: path.dirname(script), timeout: 300_000 });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => (stdout += String(d)));
+      child.stderr.on('data', (d) => (stderr += String(d)));
+      child.on('error', (e) => {
+        stderr += String(e);
+        resolve({ code: -1, stdout, stderr });
+      });
+      child.on('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    });
+
+    const lines = (await fs.promises.readFile(outPath, 'utf-8').catch(() => '')).split('\n').filter((l) => l.trim());
+    await fs.promises.rm(outPath, { force: true });
+    const parsed = lines.map((l) => {
+      try {
+        return JSON.parse(l) as { ok: boolean; input: string; result?: ParserResult; error?: string };
+      } catch {
+        return { ok: false, input: '?', error: 'JSONL 行解析失败' };
+      }
+    });
+    if (parsed.length === 0) {
+      throw new Error(`批量解析无输出 (exit ${result.code}): ${result.stderr.slice(0, 300)}`);
+    }
+    return parsed;
+  }
+
   /** 同步调用 Python 解析器；返回结构化 JSON。失败抛错并记录 stderr。 */
   async parsePdf(absPath: string): Promise<ParserResult> {
     const script = this.scriptPath();

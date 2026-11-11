@@ -4,6 +4,8 @@
  * 纯 ASCII 名不受影响（latin1 与 utf8 同值）。
  */
 export function fixFilename(name: string): string {
+  // Unicode NFC 归一化：macOS 文件系统用 NFD，同一中文/带音标名字可能有两种字节形态
+  name = name.normalize('NFC');
   if (!/[ÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]/.test(name)) {
     return name;
   }

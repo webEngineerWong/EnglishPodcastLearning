@@ -44,3 +44,32 @@
 2. 建议每批 10–20 篇（PDF+MP3+SRT 同名一组）。
 3. 任务列表轮询状态（PENDING→RUNNING→REVIEWING→COMPLETED / PARTIALLY_FAILED / FAILED）。
 4. 失败文件可单独重试；sha256 自动去重（DUPLICATE 状态）。
+
+## 重名 / 重复文件 / 编码 / 速度（内容寻址设计）
+
+借鉴 GitHub 的 blob 模型：**以内容（sha256）为中心，而不是文件名**。
+
+### 重复文件
+- 同内容文件（无论文件名是否相同）全平台只存一份：上传时按 sha256 查 `StorageObject`，已存在直接复用存储对象，不重复写盘。
+- **解析结果复用**：同内容文件此前解析成功 → 新导入直接引用 `parsedJson`（秒级完成，不再跑 Python）。
+- 完全重复的导入允许存在（可重新发布），不再被 DUPLICATE 静默拦截。
+
+### 重名不同内容
+- 如 Level 1 与 Level 3 都有 `Episode 1.mp3`（内容不同）：sha256 不同 → 各自正常导入。
+- 文件名匹配按 **集数编号精确匹配**（`episodeKey`：Episode 1 → ep1），`episode1` 不会误配 `episode10-13`（已修复的历史缺陷）。
+- ⚠️ 建议不同 Level **分批导入**（浏览器上传拿不到文件夹路径，同批内同名集数无法区分 Level）。
+
+### 中英文文件名
+- `fixFilename()`：修复 multer/busboy 把 UTF-8 文件名按 Latin-1 解码产生的乱码（`ï¼è¯æå­å¹ï¼` → `（中文字幕）`）。
+- Unicode NFC 归一化：macOS Finder 复制的文件名可能是 NFD 形态，归一后匹配一致。
+- 存储键保留中文原字符（`contentKey`），原始文件名完整入库存档。
+
+### 解析速度
+- **批量模式**：`pdf_parser.py --batch --out xx.jsonl f1 f2 ...` 单 Python 进程解析整个任务，消除每篇一次的启动开销；单文件失败不拖垮整批（JSONL 逐行），批量失败自动回退逐篇。
+- 实测：3 篇对照 PDF 0.31 秒；248 篇预计 ~25 秒（原串行 spawn 模式约 95 秒）。
+- **实时进度**：`processedFiles` 逐文件刷新，前端轮询可见。
+
+### 匹配规则（同任务内）
+1. 规范化名相等（`Episode 1（中英字幕）` ≡ `Episode 1.mp3` ≡ `Episode 1 （英文字幕）.srt`）
+2. 或集数编号相等（ep12 = ep12）
+3. 音频兜底：未匹配音频与同集数的文本/英文字幕配对

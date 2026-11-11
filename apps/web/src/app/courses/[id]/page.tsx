@@ -68,7 +68,7 @@ export default function CourseDetailPage() {
     const url = assetUrl(audio.url);
     if (!url) return;
     engine.onProgressTick = (positionMs) => {
-      void api.heartbeat({ courseId, audioAssetId: audio.id, positionMs, deltaMs: 5000 }).catch(() => undefined);
+      void api.heartbeat({ courseId, audioAssetId: audio.id, positionMs: Math.round(positionMs), deltaMs: 5000 }).catch(() => undefined);
     };
     // 首次加载：恢复进度（URL 带 resume 参数优先）
     void (async () => {
