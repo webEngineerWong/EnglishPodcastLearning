@@ -152,23 +152,50 @@ export class AudioEngine {
     this.audio.src = src;
     if (opts?.rate) this.audio.playbackRate = opts.rate;
     if (opts?.startMs && opts.startMs > 0) {
-      await new Promise<void>((resolve) => {
-        const onMeta = () => {
-          this.audio.removeEventListener('loadedmetadata', onMeta);
-          const dur = Number.isFinite(this.audio.duration) ? this.audio.duration * 1000 : Infinity;
-          const t = Math.min(opts.startMs!, Math.max(dur - 250, 0));
-          this.audio.currentTime = t / 1000;
-          this.set({ currentTimeMs: t });
-          resolve();
-        };
-        this.audio.addEventListener('loadedmetadata', onMeta);
-        // 元数据迟迟不来的兜底
-        setTimeout(resolve, 8000);
-      });
+      await this.restorePosition(opts.startMs);
     }
     if (opts?.autoplay) await this.play();
     this.set({ loading: false });
     this.startProgressTicker();
+  }
+
+  /**
+   * 恢复播放位置：
+   * - 元数据已就绪（缓存命中）时立即定位，不等待事件；
+   * - 否则等待 loadedmetadata，兜底 3 秒（绝不白等 8 秒）；
+   * - 监听器与定时器总是成对清理。
+   */
+  private restorePosition(startMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const apply = () => {
+        const dur = Number.isFinite(this.audio.duration) ? this.audio.duration * 1000 : Infinity;
+        const t = Math.min(startMs, Math.max(dur - 250, 0));
+        if (t > 0) {
+          this.audio.currentTime = t / 1000;
+          this.set({ currentTimeMs: t });
+        }
+      };
+      if (this.audio.readyState >= 1) {
+        // HAVE_METADATA：已经可以定位
+        apply();
+        resolve();
+        return;
+      }
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        this.audio.removeEventListener('loadedmetadata', onMeta);
+        clearTimeout(timer);
+        resolve();
+      };
+      const onMeta = () => {
+        apply();
+        finish();
+      };
+      const timer = setTimeout(finish, 3000);
+      this.audio.addEventListener('loadedmetadata', onMeta);
+    });
   }
 
   // ---------- 控制 ----------

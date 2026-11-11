@@ -3,7 +3,7 @@
  * 段落与音频时间戳关联；没有时间戳的段落照样显示，点击时提示。
  * 允许一个段落含多句话，也允许一句话对应一段翻译（不强制一一对应）。
  */
-import React, { useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import type { TranscriptParagraphDto } from '@elp/types';
 import { formatTime } from '@elp/player';
@@ -26,7 +26,7 @@ export interface BilingualReaderProps {
   className?: string;
 }
 
-export function BilingualReader({
+export function BilingualReaderImpl({
   paragraphs,
   activeParagraphId,
   onParagraphClick,
@@ -104,12 +104,21 @@ export function BilingualReader({
   );
 }
 
-/** 根据播放位置找当前段落：返回最后一个 startTimeMs <= t 的有时间戳段落 */
+export const BilingualReader = memo(BilingualReaderImpl);
+
+/**
+ * 根据播放位置找当前段落：
+ * 返回 startTimeMs <= t 的段落中"开始最晚"的一个 ——
+ * 段落区间允许重叠（人工校准产物），取最近开始者消除歧义；
+ * 两段之间的空隙保持上一个段落高亮（不提前跳）。
+ */
 export function findActiveParagraph(paragraphs: TranscriptParagraphDto[], tMs: number): TranscriptParagraphDto | null {
   let active: TranscriptParagraphDto | null = null;
+  let bestStart = -1;
   for (const p of paragraphs) {
     if (typeof p.startTimeMs !== 'number') continue;
-    if (p.startTimeMs <= tMs && (typeof p.endTimeMs !== 'number' || tMs < p.endTimeMs + 300)) {
+    if (p.startTimeMs <= tMs && p.startTimeMs > bestStart) {
+      bestStart = p.startTimeMs;
       active = p;
     }
     if (p.startTimeMs > tMs) break;

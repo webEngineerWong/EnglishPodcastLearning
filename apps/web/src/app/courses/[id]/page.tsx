@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, useI18n } from '@elp/ui';
 import {
   AudioPlayer,
@@ -81,24 +81,37 @@ export default function CourseDetailPage() {
     // 依赖刻意收窄
   }, [courseId, course && course.audios[0]?.id]);
 
-  // 时间同步：高亮当前段落
+  // 时间同步：高亮当前段落（id 相同不触发渲染）
+  const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!course?.transcript) return;
     const active = findActiveParagraph(course.transcript.paragraphs, state.currentTimeMs);
-    if (active && active.id !== activeParagraphId) setActiveParagraphId(active.id);
+    if (active && active.id !== activeIdRef.current) {
+      activeIdRef.current = active.id;
+      setActiveParagraphId(active.id);
+    }
     // 依赖刻意收窄
   }, [state.currentTimeMs]);
 
-  const clickParagraph = (p: TranscriptParagraphDto) => {
-    if (typeof p.startTimeMs === 'number') {
-      engine.seek(p.startTimeMs);
-      setActiveParagraphId(p.id);
-      if (!state.playing) void engine.play();
-    } else {
-      setToast(t('noTimestamp'));
-      setTimeout(() => setToast(null), 2500);
-    }
-  };
+  const clickParagraph = useCallback(
+    (p: TranscriptParagraphDto) => {
+      if (typeof p.startTimeMs === 'number') {
+        engine.seek(p.startTimeMs);
+        activeIdRef.current = p.id;
+        setActiveParagraphId(p.id);
+        if (!engine.getState().playing) void engine.play();
+      } else {
+        setToast(t('noTimestamp'));
+        setTimeout(() => setToast(null), 2500);
+      }
+    },
+    [engine, t]
+  );
+
+  const renderActions = useCallback(
+    (p: TranscriptParagraphDto) => <ParagraphActions paragraph={p} courseId={courseId} />,
+    [courseId]
+  );
 
   // 单句循环开关（作用于当前高亮段落）
   const toggleParagraphLoop = () => {
@@ -208,7 +221,7 @@ export default function CourseDetailPage() {
               onNoTimestamp={() => undefined}
               mode={mode}
               autoScroll={autoScroll}
-              renderParagraphActions={(p) => <ParagraphActions paragraph={p} courseId={courseId} />}
+              renderParagraphActions={renderActions}
             />
           )}
         </CardContent>

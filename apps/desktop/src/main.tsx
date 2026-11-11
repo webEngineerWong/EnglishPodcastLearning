@@ -2,7 +2,7 @@
  * Electron 渲染端入口：复用共享 packages（ui / player / api-client / types）。
  * 页面集合：Dashboard / Courses / CourseDetail / Import（本地文件走 IPC 导入）。
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
 import { I18nProvider, ThemeProvider, useI18n, Button, Card, CardContent, Badge, EmptyState, Spinner, Input } from '@elp/ui';
@@ -159,6 +159,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const engine = useAudioEngine();
   const state = usePlayerState(engine);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<DisplayMode>('both');
 
   const audio = course?.audios?.[0];
@@ -176,11 +177,21 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   useEffect(() => {
     if (!course?.transcript) return;
     const active = findActiveParagraph(course.transcript.paragraphs, state.currentTimeMs);
-    if (active && active.id !== activeId) setActiveId(active.id);
+    if (active && active.id !== activeIdRef.current) {
+      activeIdRef.current = active.id;
+      setActiveId(active.id);
+    }
     // 依赖刻意收窄
   }, [state.currentTimeMs]);
 
   useKeyboardShortcuts(engine);
+
+  const clickParagraph = useCallback((p: { startTimeMs?: number | null }) => {
+    if (typeof p.startTimeMs === 'number') {
+      engine.seek(p.startTimeMs);
+      if (!engine.getState().playing) void engine.play();
+    }
+  }, [engine]);
 
   if (!course) return <Spinner />;
   const paragraphs = course.transcript?.paragraphs ?? [];
@@ -216,12 +227,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           paragraphs={paragraphs}
           activeParagraphId={activeId}
           mode={mode}
-          onParagraphClick={(p) => {
-            if (typeof p.startTimeMs === 'number') {
-              engine.seek(p.startTimeMs);
-              if (!state.playing) void engine.play();
-            }
-          }}
+          onParagraphClick={clickParagraph}
         />
       )}
     </div>
