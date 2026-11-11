@@ -113,26 +113,43 @@ export class CoursesService {
       orderBy: { lastLearnedAt: 'desc' }
     });
 
-    const transcript = c.transcripts[0]
+    // subtitle transcript = 主字幕（点击跳转）；material transcripts = 学习资料（跟随滚动）
+    const mapParagraphs = (rows: typeof c.transcripts[number]['paragraphs']) =>
+      rows.map((p) => ({
+        id: p.id,
+        order: p.order,
+        type: p.type,
+        textEn: p.textEn,
+        textZh: p.textZh,
+        startTimeMs: p.startTimeMs,
+        endTimeMs: p.endTimeMs,
+        pageStart: p.pageStart,
+        pageEnd: p.pageEnd,
+        confidence: p.confidence,
+        reviewStatus: p.reviewStatus
+      }));
+    const subtitleRow =
+      c.transcripts.find((t) => t.kind === 'subtitle') ?? c.transcripts[0] ?? null;
+    const transcript = subtitleRow
       ? {
-          id: c.transcripts[0].id,
+          id: subtitleRow.id,
           courseId: c.id,
-          status: c.transcripts[0].status,
-          paragraphs: c.transcripts[0].paragraphs.map((p) => ({
-            id: p.id,
-            order: p.order,
-            type: p.type,
-            textEn: p.textEn,
-            textZh: p.textZh,
-            startTimeMs: p.startTimeMs,
-            endTimeMs: p.endTimeMs,
-            pageStart: p.pageStart,
-            pageEnd: p.pageEnd,
-            confidence: p.confidence,
-            reviewStatus: p.reviewStatus
-          }))
+          kind: 'subtitle' as const,
+          title: subtitleRow.title,
+          status: subtitleRow.status,
+          paragraphs: mapParagraphs(subtitleRow.paragraphs)
         }
       : null;
+    const materials = c.transcripts
+      .filter((t) => t.kind === 'material')
+      .map((t) => ({
+        id: t.id,
+        courseId: c.id,
+        kind: 'material' as const,
+        title: t.title,
+        status: t.status,
+        paragraphs: mapParagraphs(t.paragraphs)
+      }));
 
     const audiosWithUrl = await Promise.all(
       c.audios.map(async (a) => ({
@@ -177,7 +194,8 @@ export class CoursesService {
       updatedAt: c.updatedAt,
       audios: audiosWithUrl,
       documents: documentsWithUrl,
-      transcript
+      transcript,
+      materials
     };
   }
 

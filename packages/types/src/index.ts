@@ -101,6 +101,9 @@ export interface TranscriptParagraphDto {
 export interface TranscriptDto {
   id: ID;
   courseId: ID;
+  /** subtitle = 实时字幕（点击跳转音频）；material = 学习资料（跟随滚动） */
+  kind?: 'subtitle' | 'material';
+  title?: string | null;
   status: TranscriptStatus;
   paragraphs: TranscriptParagraphDto[];
 }
@@ -126,7 +129,10 @@ export interface CourseDetailDto extends CourseListItem {
   notes?: string | null;
   audios: AudioAssetDto[];
   documents: DocumentAssetDto[];
+  /** 主字幕（左侧面板，点击跳转音频） */
   transcript?: TranscriptDto | null;
+  /** 学习资料（右侧面板，跟随音频滚动）：对照 PDF / 笔记解析内容 */
+  materials?: TranscriptDto[];
 }
 
 export interface Paginated<T> {

@@ -41,7 +41,9 @@ export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
  * 一个引擎实例只持有一个 <audio> 元素，load(src) 会清理上一个资源。
  */
 export class AudioEngine {
-  private audio: HTMLAudioElement;
+  /** 惰性创建：SSR/Node 环境无 Audio，首次真实访问时才初始化 */
+  private _audio: HTMLAudioElement | null = null;
+  private eventsBound = false;
   private listeners = new Set<PlayerListener>();
   private state: PlayerState = {
     playing: false,
@@ -66,12 +68,24 @@ export class AudioEngine {
   private progressTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    if (typeof Audio === 'undefined') {
-      throw new Error('AudioEngine requires a browser environment');
+    // audio 元素延迟到首次访问时创建（支持 SSR 预渲染）
+  }
+
+  private get audio(): HTMLAudioElement {
+    if (!this._audio) {
+      if (typeof Audio === 'undefined') {
+        // Node/SSR 环境：返回一个最小 stub，任何控制调用都是 no-op
+        return { addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as HTMLAudioElement;
+      }
+      const el = new Audio();
+      el.preload = 'metadata';
+      this._audio = el;
+      if (!this.eventsBound) {
+        this.bindEvents();
+        this.eventsBound = true;
+      }
     }
-    this.audio = new Audio();
-    this.audio.preload = 'metadata';
-    this.bindEvents();
+    return this._audio;
   }
 
   // ---------- 状态订阅 ----------

@@ -132,6 +132,17 @@ export default function CourseDetailPage() {
 
   useKeyboardShortcuts(engine, { onLoopParagraph: toggleParagraphLoop });
 
+  // 学习资料面板（对照 PDF 解析内容）—— 按自身时间戳跟随音频滚动
+  const materials = course?.materials ?? [];
+  const materialActiveIds = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const m of materials) {
+      const active = findActiveParagraph(m.paragraphs, state.currentTimeMs);
+      map[m.id] = active?.id ?? null;
+    }
+    return map;
+  }, [materials, state.currentTimeMs]);
+
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
   if (error || !course) return <EmptyState icon="⚠️" title={error ?? t('empty')} />;
   if (!course) return null;
@@ -236,24 +247,58 @@ export default function CourseDetailPage() {
         {state.loopMode === 'ab' && <Badge tone="warning">A-B</Badge>}
       </div>
 
-      {/* 双语正文 */}
-      <Card>
-        <CardContent className="p-3 md:p-4">
-          {paragraphs.length === 0 ? (
-            <EmptyState icon="📄" title={t('noTranscript')} />
-          ) : (
-            <BilingualReader
-              paragraphs={paragraphs}
-              activeParagraphId={activeParagraphId}
-              onParagraphClick={clickParagraph}
-              onNoTimestamp={() => undefined}
-              mode={mode}
-              autoScroll={autoScroll}
-              renderParagraphActions={renderActions}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {/* 双语正文：左=实时字幕（点击跳转） 右=学习资料（跟随滚动） */}
+      <div className={materials.length > 0 ? 'grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]' : ''}>
+        <Card>
+          <CardContent className="p-3 md:p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">字幕</span>
+              <span>跟随音频 · 点击跳转</span>
+            </div>
+            {paragraphs.length === 0 ? (
+              <EmptyState icon="📄" title={t('noTranscript')} />
+            ) : (
+              <BilingualReader
+                paragraphs={paragraphs}
+                activeParagraphId={activeParagraphId}
+                onParagraphClick={clickParagraph}
+                onNoTimestamp={() => undefined}
+                mode={mode}
+                autoScroll={autoScroll}
+                renderParagraphActions={renderActions}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {materials.length > 0 && (
+          <Card>
+            <CardContent className="p-3 md:p-4">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
+                <span>跟随音频滚动 · 点击例句跳转</span>
+              </div>
+              <div className="space-y-4">
+                {materials.map((m) => (
+                  <div key={m.id}>
+                    {m.title && <div className="mb-1 text-xs font-medium text-muted-foreground">📄 {m.title}</div>}
+                    <BilingualReader
+                      paragraphs={m.paragraphs}
+                      activeParagraphId={materialActiveIds[m.id] ?? null}
+                      onParagraphClick={clickParagraph}
+                      onNoTimestamp={() => undefined}
+                      mode={mode}
+                      autoScroll={autoScroll}
+                      fontSize="sm"
+                      renderParagraphActions={renderActions}
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* 学习笔记 */}
       {course.notes && (

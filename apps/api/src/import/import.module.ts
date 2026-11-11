@@ -847,7 +847,13 @@ export class ImportService {
     return draft.paragraphs;
   }
 
-  /** 发布：每个 PARSED 文本文件生成一个正式课程（含音频与 SRT 时间戳） */
+  /**
+   * 发布：任务内文件按集数编号分组，每组生成一门课程。
+   * 一门课程可包含两类内容：
+   *   - subtitle transcript：实时字幕（SRT / 双语合成）—— 点击跳转音频
+   *   - material transcript(s)：学习资料（对照 PDF / TXT）—— 跟随音频滚动
+   * 音频挂到所在组的课程上；原始文件全部归档为 DocumentAsset（importFileId 唯一防重发）。
+   */
   async publishJob(
     jobId: string,
     input?: { title?: string; categoryId?: string; fileIds?: string[] }
@@ -855,191 +861,204 @@ export class ImportService {
     const job = await this.prisma.importJob.findUnique({ where: { id: jobId }, include: { files: true } });
     if (!job) throw new NotFoundException(`ImportJob ${jobId} not found`);
 
-    // 幂等：已发布过（存在关联 DocumentAsset）的文件自动跳过
-    const publishedFileIds = new Set(
-      (
-        await this.prisma.documentAsset.findMany({
-          where: { importFileId: { in: job.files.map((f) => f.id) } },
-          select: { importFileId: true }
-        })
-      )
-        .map((d) => d.importFileId)
-        .filter(Boolean)
-    );
-    // 内容寻址防重：同 sha256 的文件已发布过 → 该文件跳过（避免复制进来的同内容文件重复建课）
-    const publishedStorageKeys = new Set(
-      (
-        await this.prisma.documentAsset.findMany({
-          where: { storageKey: { in: job.files.map((f) => f.storageKey) } },
-          select: { storageKey: true }
-        })
-      ).map((d) => d.storageKey)
-    );
     const isPublishable = (f: { kind: string; parsedJson: unknown }) =>
       ['pdf', 'txt'].includes(f.kind) ||
-      (f.kind === 'srt' && (f.parsedJson as { meta?: { synthesized?: string } } | null)?.meta?.synthesized === 'bilingual');
-    const textFiles = job.files.filter(
-      (f) =>
-        isPublishable(f) &&
-        ['PARSED', 'MATCHED'].includes(f.status) &&
-        !publishedFileIds.has(f.id) &&
-        !publishedStorageKeys.has(f.storageKey) &&
-        (!input?.fileIds || input.fileIds.includes(f.id))
+      f.kind === 'srt' ||
+      ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind);
+    const publishable = job.files.filter(
+      (f) => isPublishable(f) && ['PARSED', 'MATCHED', 'SKIPPED'].includes(f.status)
     );
-    if (textFiles.length === 0) {
-      // 纯音频任务：发布为"仅音频课程"（文本可后续在课程详情页补传）
-      const audioOnly = job.files.filter(
-        (f) => AUDIO_KINDS.includes(f.kind as ImportFileKind) && ['MATCHED', 'SKIPPED'].includes(f.status) && !publishedFileIds.has(f.id)
-      );
-      if (audioOnly.length === 0) throw new BadRequestException('任务中没有可发布的内容（或已全部发布过）');
-      const { id: userId } = await this.users.userForRequest();
-      const courseIds: string[] = [];
-      for (const af of audioOnly) {
-        const course = await this.prisma.course.create({
-          data: {
-            title: cleanTitle(af.originalName),
-            difficulty: 3,
-            tags: ['audio-only'],
-            status: 'PUBLISHED',
-            createdById: userId,
-            sourceJobId: job.id
-          }
-        });
-        const audioAsset = await this.prisma.audioAsset.create({
-          data: {
-            courseId: course.id,
-            storageKey: af.storageKey,
-            originalName: af.originalName,
-            mimeType: af.kind === 'mp3' ? 'audio/mpeg' : af.kind === 'wav' ? 'audio/wav' : af.kind === 'm4a' ? 'audio/mp4' : 'video/mp4',
-            sizeBytes: af.sizeBytes,
-            order: 0
-          }
-        });
-        await this.prisma.documentAsset
-          .create({
-            data: {
-              courseId: course.id,
-              kind: af.kind === 'mp4' ? 'mp4' : (af.kind as 'pdf' | 'txt' | 'srt'),
-              storageKey: af.storageKey,
-              originalName: af.originalName,
-              mimeType: audioAsset.mimeType,
-              sizeBytes: af.sizeBytes,
-              sha256: af.sha256,
-              importFileId: af.id
-            }
-          })
-          .catch(() => undefined);
-        courseIds.push(course.id);
-        await this.prisma.importFile.update({ where: { id: af.id }, data: { status: 'MATCHED', error: null } });
-      }
-      await this.prisma.importJob.update({ where: { id: job.id }, data: { status: 'COMPLETED' } });
-      return { courseId: courseIds[0], courseIds, paragraphCount: 0 };
+
+    // 已发布判定：importFileId 绑定 或 同内容（storageKey）已发布
+    // 只统计已挂到课程上的归档（孤立归档不算已发布）
+    const boundRows = await this.prisma.documentAsset.findMany({
+      where: {
+        courseId: { not: null },
+        OR: [
+          { importFileId: { in: publishable.map((f) => f.id) } },
+          { storageKey: { in: publishable.map((f) => f.storageKey) } }
+        ]
+      },
+      select: { importFileId: true, storageKey: true }
+    });
+    const boundFileIds = new Set(boundRows.map((r) => r.importFileId).filter(Boolean));
+    const boundStorageKeys = new Set(boundRows.map((r) => r.storageKey));
+
+    const pool = publishable.filter(
+      (f) => !boundFileIds.has(f.id) && !boundStorageKeys.has(f.storageKey) && (!input?.fileIds || input.fileIds.includes(f.id))
+    );
+    if (pool.length === 0) {
+      throw new BadRequestException('任务中没有可发布的内容（或已全部发布过）');
+    }
+
+    // 按集数分组；无编号的文件各自独立成组
+    const groups = new Map<string, typeof pool>();
+    for (const f of pool) {
+      const key = episodeKey(f.originalName) ?? `solo-${f.id}`;
+      const arr = groups.get(key) ?? [];
+      arr.push(f);
+      groups.set(key, arr);
     }
 
     const { id: userId } = await this.users.userForRequest();
     const createdCourses: string[] = [];
-    let lastDraftParagraphs: DraftParagraph[] = [];
+    let totalParagraphs = 0;
 
-    for (const tf of textFiles) {
-      const { draft } = await this.loadDraft(tf.id);
-      const title =
-        input?.fileIds && input.fileIds.length === 1 && input.title
-          ? input.title
-          : cleanTitle(tf.originalName);
+    for (const group of groups.values()) {
+      const texts = group.filter((f) => ['pdf', 'txt'].includes(f.kind));
+      const srts = group.filter((f) => f.kind === 'srt');
+      const audio = group.find((f) => AUDIO_KINDS.includes(f.kind as ImportFileKind));
+
+      // 字幕源优先级：双语合成（en srt）> 纯英文/混合 > 纯中文
+      const subtitleFile =
+        srts.find((f) => (f.parsedJson as { meta?: { synthesized?: string } } | null)?.meta?.synthesized === 'bilingual') ??
+        srts.find((f) => ['en', 'mixed'].includes((f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language ?? '')) ??
+        zhOrFirst(srts);
+
+      const mainName = subtitleFile?.originalName ?? texts[0]?.originalName ?? audio?.originalName ?? job.name ?? '课程';
       const course = await this.prisma.course.create({
         data: {
-          title,
+          title: groups.size === 1 && input?.title ? input.title : cleanTitle(mainName),
           difficulty: 3,
           tags: [],
-          categoryId: input?.categoryId || undefined,
           status: 'PUBLISHED',
+          categoryId: input?.categoryId || undefined,
           createdById: userId,
-          sourceJobId: jobId
+          sourceJobId: job.id
         }
       });
 
-      // 原始 PDF/TXT 保留为 DocumentAsset
-      await this.prisma.documentAsset.create({
-        data: {
-          courseId: course.id,
-          kind: tf.kind === 'srt' ? 'txt' : (tf.kind as 'pdf' | 'txt' | 'srt'),
-          storageKey: tf.storageKey,
-          originalName: tf.originalName,
-          mimeType: tf.kind === 'pdf' ? 'application/pdf' : 'text/plain',
-          sizeBytes: tf.sizeBytes,
-          sha256: tf.sha256,
-          importFileId: tf.id
+      // ── subtitle transcript（实时字幕，点击跳转） ──
+      if (subtitleFile?.parsedJson) {
+        const draft = subtitleFile.parsedJson as { paragraphs: DraftParagraph[]; meta?: Record<string, unknown> };
+        if (draft.paragraphs?.length) {
+          const transcript = await this.prisma.transcript.create({
+            data: { courseId: course.id, kind: 'subtitle', title: cleanTitle(subtitleFile.originalName), status: 'PUBLISHED', sourceType: 'import' }
+          });
+          await this.prisma.transcriptParagraph.createMany({
+            data: draft.paragraphs.map((p) => ({
+              transcriptId: transcript.id,
+              order: p.order,
+              type: p.type,
+              textEn: p.textEn,
+              textZh: p.textZh,
+              startTimeMs: p.startTimeMs ?? null,
+              endTimeMs: p.endTimeMs ?? null,
+              pageStart: p.pageStart ?? null,
+              pageEnd: p.pageEnd ?? null,
+              confidence: p.confidence,
+              reviewStatus: p.reviewStatus,
+              importFileId: subtitleFile.id
+            }))
+          });
+          totalParagraphs += draft.paragraphs.length;
         }
-      });
+      }
 
-      // 匹配的音频 → AudioAsset
-      const nT = normalizeName(tf.originalName);
-      const audioFile = job.files.find((a) => AUDIO_KINDS.includes(a.kind as ImportFileKind) && a.status === 'MATCHED' && nameMatch(a.originalName, tf.originalName));
-      let audioAssetId: string | undefined;
-      if (audioFile) {
-        this.logger.log(`publish step4a: audioFile=${audioFile.originalName.slice(0, 20)} status=${audioFile.status}`);
-        const audioAsset = await this.prisma.audioAsset.create({
+      // ── material transcripts（学习资料，跟随音频滚动） ──
+      // 对齐依据：组内字幕的行级 cue（资料里的例句/导语与字幕重合的段落获得真实时间戳）
+      let srtCues: SrtCue[] | null = null;
+      if (subtitleFile?.parsedJson) {
+        const meta = (subtitleFile.parsedJson as { meta?: { rawLines?: { text: string; startMs: number; endMs: number }[] } }).meta;
+        if (meta?.rawLines?.length) {
+          srtCues = meta.rawLines.map((l, i) => ({ index: i, startMs: l.startMs, endMs: l.endMs, text: l.text }));
+        }
+      }
+      for (const tf of texts) {
+        const { draft } = await this.loadDraft(tf.id);
+        let paragraphs = draft.paragraphs;
+        if (srtCues && paragraphs.length) {
+          const hints = assignTimestampsFromSrt(paragraphs.map((p) => ({ textEn: p.textEn ?? '' })), srtCues);
+          paragraphs = paragraphs.map((p, i) => {
+            const h = hints[i];
+            if (!h) return p;
+            return { ...p, startTimeMs: h.startMs, endTimeMs: h.endMs, timestampConfidence: h.confidence };
+          });
+        }
+        if (paragraphs.length) {
+          const transcript = await this.prisma.transcript.create({
+            data: { courseId: course.id, kind: 'material', title: cleanTitle(tf.originalName), status: 'PUBLISHED', sourceType: 'import' }
+          });
+          await this.prisma.transcriptParagraph.createMany({
+            data: paragraphs.map((p) => ({
+              transcriptId: transcript.id,
+              order: p.order,
+              type: p.type,
+              textEn: p.textEn,
+              textZh: p.textZh,
+              startTimeMs: p.startTimeMs ?? null,
+              endTimeMs: p.endTimeMs ?? null,
+              pageStart: p.pageStart ?? null,
+              pageEnd: p.pageEnd ?? null,
+              confidence: p.confidence,
+              reviewStatus: p.reviewStatus,
+              importFileId: tf.id
+            }))
+          });
+          totalParagraphs += paragraphs.length;
+        }
+      }
+
+      // ── 音频 ──
+      if (audio) {
+        await this.prisma.audioAsset.create({
           data: {
             courseId: course.id,
-            storageKey: audioFile.storageKey,
-            originalName: audioFile.originalName,
-            mimeType: audioFile.kind === 'mp3' ? 'audio/mpeg' : audioFile.kind === 'wav' ? 'audio/wav' : audioFile.kind === 'm4a' ? 'audio/mp4' : 'video/mp4',
-            sizeBytes: audioFile.sizeBytes,
+            storageKey: audio.storageKey,
+            originalName: audio.originalName,
+            mimeType: audio.kind === 'mp3' ? 'audio/mpeg' : audio.kind === 'wav' ? 'audio/wav' : audio.kind === 'm4a' ? 'audio/mp4' : 'video/mp4',
+            sizeBytes: audio.sizeBytes,
             order: 0
           }
         });
-        audioAssetId = audioAsset.id;
-        // 音频也保留到 DocumentAsset 以便追溯（kind mp3）
+      }
+
+      // ── 原始文件归档（importFileId 绑定 = 防重发标记） ──
+      for (const f of [...texts, ...(subtitleFile ? [subtitleFile] : []), ...(audio ? [audio] : [])]) {
         await this.prisma.documentAsset
           .create({
             data: {
               courseId: course.id,
-              kind: audioFile.kind === 'mp4' ? 'mp4' : (audioFile.kind as 'pdf' | 'txt' | 'srt'),
-              storageKey: audioFile.storageKey,
-              originalName: audioFile.originalName,
-              mimeType: 'audio/mpeg',
-              sizeBytes: audioFile.sizeBytes,
-              sha256: audioFile.sha256,
-              importFileId: audioFile.id
+              kind: f.kind === 'mp4' ? 'mp4' : (f.kind as 'pdf' | 'txt' | 'srt'),
+              storageKey: f.storageKey,
+              originalName: f.originalName,
+              mimeType:
+                f.kind === 'pdf' ? 'application/pdf' : f.kind === 'mp3' ? 'audio/mpeg' : f.kind === 'wav' ? 'audio/wav' : f.kind === 'm4a' ? 'audio/mp4' : 'text/plain',
+              sizeBytes: f.sizeBytes,
+              sha256: f.sha256,
+              importFileId: f.id
             }
           })
-          .catch((e) => {
-            // 追溯记录失败不影响发布（importFileId 唯一冲突 = 该音频已被其他课程关联）
-            this.logger.warn(`audio document asset skip: ${e instanceof Error ? e.message.slice(0, 80) : e}`);
-          });
+          .catch(() => undefined);
+        await this.prisma.importFile.update({ where: { id: f.id }, data: { status: 'MATCHED', error: null } }).catch(() => undefined);
       }
 
-      // 正式 Transcript
-      const transcript = await this.prisma.transcript.create({
-        data: { courseId: course.id, status: 'PUBLISHED', sourceType: 'import' }
-      });
-      const paragraphs = draft.paragraphs;
-      if (paragraphs.length) {
-        await this.prisma.transcriptParagraph.createMany({
-          data: paragraphs.map((p) => ({
-            transcriptId: transcript.id,
-            order: p.order,
-            type: p.type,
-            textEn: p.textEn,
-            textZh: p.textZh,
-            startTimeMs: p.startTimeMs ?? null,
-            endTimeMs: p.endTimeMs ?? null,
-            pageStart: p.pageStart ?? null,
-            pageEnd: p.pageEnd ?? null,
-            confidence: p.confidence,
-            reviewStatus: p.reviewStatus,
-            importFileId: tf.id
-          }))
-        });
-      }
-      lastDraftParagraphs = paragraphs;
       createdCourses.push(course.id);
-      await this.prisma.importFile.update({ where: { id: tf.id }, data: { status: 'MATCHED' } });
     }
 
     await this.prisma.importJob.update({ where: { id: jobId }, data: { status: 'COMPLETED' } });
-    return { courseId: createdCourses[0], courseIds: createdCourses, paragraphCount: lastDraftParagraphs.length };
+    return { courseId: createdCourses[0], courseIds: createdCourses, paragraphCount: totalParagraphs };
   }
+}
+
+/** 分组/发布时使用的 ImportFile 行形状 */
+interface ImportFileRow {
+  id: string;
+  kind: string;
+  originalName: string;
+  storageKey: string;
+  sha256: string | null;
+  sizeBytes: number;
+  status: string;
+  parsedJson: unknown;
+  paragraphCount: number | null;
+  jobId: string;
+}
+
+/** 字幕源兜底：优先中文字幕（含翻译），否则取第一个 srt */
+function zhOrFirst(srts: ImportFileRow[]): ImportFileRow | undefined {
+  const zh = srts.find((f) => (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'zh');
+  return zh ?? srts[0];
 }
 
 /** 文件名匹配：规范化相等 或 集数编号相等（episode1 不会误配 episode10-13） */

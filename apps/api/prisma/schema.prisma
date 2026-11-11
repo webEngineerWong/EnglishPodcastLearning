@@ -178,6 +178,9 @@ model Transcript {
   courseId   String
   course     Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   status     TranscriptStatus @default(DRAFT)
+  // subtitle = 实时字幕（对齐音频、点击跳转）；material = 学习资料（对照 PDF/笔记，跟随滚动）
+  kind       String          @default("subtitle")
+  title      String?
   sourceType String          @default("import") // import | manual | srt
   paragraphs TranscriptParagraph[]
   createdAt  DateTime        @default(now())

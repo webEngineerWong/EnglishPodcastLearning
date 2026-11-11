@@ -440,6 +440,17 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
     [t]
   );
 
+  // 学习资料面板 —— 按自身时间戳跟随音频滚动（hooks 必须在早退之前）
+  const materials = course?.materials ?? [];
+  const materialActiveIds = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const m of materials) {
+      const active = findActiveParagraph(m.paragraphs, state.currentTimeMs);
+      map[m.id] = active?.id ?? null;
+    }
+    return map;
+  }, [materials, state.currentTimeMs]);
+
   if (!course) return <Spinner />;
   const paragraphs = course.transcript?.paragraphs ?? [];
 
@@ -483,29 +494,58 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           <CardContent className="py-5 text-center text-sm text-muted-foreground">{t('noAudio')}</CardContent>
         </Card>
       )}
-      {paragraphs.length === 0 ? (
-        <EmptyState icon="📄" title={t('noTranscript')} />
-      ) : (
-        <BilingualReader
-          paragraphs={paragraphs}
-          activeParagraphId={activeId}
-          mode={mode}
-          onParagraphClick={clickParagraph}
-          renderParagraphActions={(p) => (
-            <>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
-                ☆
-              </button>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
-                🔤
-              </button>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
-                ⧉
-              </button>
-            </>
+      <div className={materials.length > 0 ? 'grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]' : ''}>
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">字幕</span>
+            <span>跟随音频 · 点击跳转</span>
+          </div>
+          {paragraphs.length === 0 ? (
+            <EmptyState icon="📄" title={t('noTranscript')} />
+          ) : (
+            <BilingualReader
+              paragraphs={paragraphs}
+              activeParagraphId={activeId}
+              mode={mode}
+              onParagraphClick={clickParagraph}
+              renderParagraphActions={(p) => (
+                <>
+                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
+                    ☆
+                  </button>
+                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
+                    🔤
+                  </button>
+                  <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
+                    ⧉
+                  </button>
+                </>
+              )}
+            />
           )}
-        />
-      )}
+        </div>
+        {materials.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">学习资料</span>
+              <span>跟随音频滚动 · 点击例句跳转</span>
+            </div>
+            <div className="space-y-4">
+              {materials.map((m) => (
+                <div key={m.id}>
+                  {m.title && <div className="mb-1 text-xs font-medium text-muted-foreground">📄 {m.title}</div>}
+                  <BilingualReader
+                    paragraphs={m.paragraphs}
+                    activeParagraphId={materialActiveIds[m.id] ?? null}
+                    mode={mode}
+                    onParagraphClick={clickParagraph}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       {course.notes && (
         <Card className="mt-4">
           <CardContent className="p-4">
