@@ -1,3 +1,5 @@
+name: english-learning-platform
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -8,7 +10,7 @@ services:
       POSTGRES_PASSWORD: elp_dev_password
       POSTGRES_DB: elp
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - elp_pgdata:/var/lib/postgresql
     healthcheck:
@@ -16,5 +18,51 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-runtime
+    container_name: elp-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://elp:elp_dev_password@postgres:5432/elp?schema=public
+      PORT: 3001
+      WEB_ORIGIN: "*"
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_ROOT: /data/storage
+      MAX_UPLOAD_MB: 200
+      DEFAULT_USER_EMAIL: local@elp.dev
+    ports:
+      - "${API_PORT:-3001}:3001"
+    volumes:
+      - ./data/storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/users/me >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-runtime
+      args:
+        # 浏览器访问 API 的地址（部署到服务器时改为服务器地址）
+        NEXT_PUBLIC_API_URL: ${ELP_API_URL:-http://localhost:3001}
+    container_name: elp-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   elp_pgdata:

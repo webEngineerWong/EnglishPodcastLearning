@@ -1,6 +1,35 @@
 # 部署（DEPLOYMENT）
 
-## 第一阶段：Mac mini 本地运行（当前）
+## Docker 一键部署（推荐）
+
+```bash
+docker compose up -d --build     # 首次构建 ~5 分钟，之后秒级
+```
+
+一键启动三个服务（启动顺序与依赖自动编排）：
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| Web | http://localhost:3000 | Next.js standalone，浏览器直接用 |
+| API | http://localhost:3001/api | NestJS；启动时自动 `prisma migrate deploy` |
+| PostgreSQL | localhost:5433 | 数据卷 `elp_pgdata` 持久化 |
+
+- **存储卷**：宿主机 `./data/storage` 直接挂载到容器 `/data/storage` —— 已导入的音频/PDF 原样可用，Electron 桌面客户端无感切换（仍连 `localhost:3001`）。
+- **重复构建零成本**：镜像内容寻址缓存；`pnpm-workspace.yaml` 的 `allowBuilds` 控制 prisma engines 等构建脚本（pnpm 12 语法）。
+- 常用命令：
+  ```bash
+  docker compose logs -f api      # 跟踪 API 日志
+  docker compose exec api node_modules/.bin/prisma studio
+  docker compose exec api node_modules/.bin/tsx prisma/seed.ts   # 演示数据
+  docker compose down             # 停止（数据保留）
+  docker compose down -v          # 连数据库一起清空
+  ```
+- 部署到服务器：`ELP_API_URL=https://api.example.com docker compose build web`（NEXT_PUBLIC_API_URL 编译进前端 bundle）。
+- 端口覆盖：`API_PORT=3002 WEB_PORT=3001 docker compose up -d`。
+
+## 本地开发（不用 Docker 跑前后端）
+
+## 第一阶段：Mac mini 本地运行
 
 ```bash
 pnpm install && pnpm setup:parser

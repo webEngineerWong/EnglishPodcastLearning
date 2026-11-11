@@ -226,12 +226,18 @@ importers:
       multer:
         specifier: ^1.4.5-lts.1
         version: 1.4.5-lts.2
+      prisma:
+        specifier: ^6.2.1
+        version: 6.19.3(typescript@5.9.3)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
     devDependencies:
       '@nestjs/cli':
         specifier: ^10.4.9
@@ -251,12 +257,6 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.5
-      prisma:
-        specifier: ^6.2.1
-        version: 6.19.3(typescript@5.9.3)
-      tsx:
-        specifier: ^4.19.2
-        version: 4.23.15
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

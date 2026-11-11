@@ -42,6 +42,15 @@
 - 浏览器实测（IAB）：Dashboard 渲染、EP1 播放器（点击段落→0:08→自动播放→0:09）、单句循环锁回 0:08、EP23（真实 MP3 20:07）点击段落→0:48→播放至 0:50
 - Web build：7 路由全部生成 ✓
 
+## 2026-11-12 追加 3：Docker 一键部署
+
+`docker compose up -d --build` 一键启动 PostgreSQL + API + Web：
+- 多阶段 Dockerfile（deps → turbo build → pnpm deploy 瘦身 / Next standalone）
+- API 启动自动 `prisma migrate deploy`；宿主机 `./data/storage` 挂载为存储卷（已有课程文件原样可用）
+- 健康检查链：postgres → api（wget 探活）→ web；10 秒内全部就绪
+- pnpm 12 构建脚本配置为 `allowBuilds`（workspace yaml，非 package.json#pnpm —— 12 的变更）；electron 显式拒绝（容器内不下载二进制）
+- 实测：课程/音频流/页面渲染全部通过；桌面客户端无感切换
+
 ## 2026-11-12 追加 2：Electron 打包版可用性修复
 
 用户反馈打包客户端"一直转圈"。根因链与修复：
