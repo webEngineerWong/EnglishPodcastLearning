@@ -1,5 +1,6 @@
 import React from 'react';
 import clsx from 'clsx';
+import { X } from 'lucide-react';
 
 // 基础组件集（shadcn 风格、手写实现，供 Web 与 Electron 共用）
 export const Button = ({
@@ -148,7 +149,7 @@ export function Modal({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">{title}</h2>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="close">
-            ✕
+            <X size={16} />
           </Button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto">{children}</div>

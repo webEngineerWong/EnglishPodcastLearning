@@ -20,6 +20,7 @@
     "@elp/ui": "workspace:*",
     "@tanstack/react-query": "^5.62.11",
     "clsx": "^2.1.1",
+    "lucide-react": "^1.71.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

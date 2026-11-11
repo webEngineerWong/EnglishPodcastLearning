@@ -3,14 +3,26 @@
   "version": "0.1.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run"
   },
-  "dependencies": { "@elp/types": "workspace:*" },
-  "peerDependencies": { "react": ">=18" },
-  "devDependencies": { "react": "^19.0.0", "@types/react": "^19.0.0", "typescript": "^5.6.3", "vitest": "^2.1.8" }
+  "dependencies": {
+    "@elp/types": "workspace:*",
+    "lucide-react": "^1.71.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
 }

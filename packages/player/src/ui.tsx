@@ -1,5 +1,6 @@
 /** 完整音频播放器 UI —— Web 与 Electron 共用 */
 import React from 'react';
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Repeat, Repeat1, Volume2, VolumeX } from 'lucide-react';
 import { AudioEngine, type PlayerState } from './engine';
 import { RATES } from './react';
 import { formatTime } from './format';
@@ -15,6 +16,10 @@ export interface AudioPlayerProps {
   onToggleParagraphLoop?: () => void;
   compact?: boolean;
   disabled?: boolean;
+}
+
+function SpinnerDot() {
+  return <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
 }
 
 export function AudioPlayer({ engine, state, title, onPrev, onNext, onToggleParagraphLoop, compact, disabled }: AudioPlayerProps) {
@@ -80,13 +85,13 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <span className="w-11 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(state.currentTimeMs)}</span>
           <button className="rounded px-1.5 py-1 text-sm hover:bg-accent disabled:opacity-40" onClick={() => engine.skip(-5)} disabled={disabled} title="快退 5s">
-            ⏪
+            <Rewind size={16} className="shrink-0" />
           </button>
           <button className="rounded px-1.5 py-1 text-sm hover:bg-accent disabled:opacity-40" onClick={() => engine.skip(5)} disabled={disabled} title="快进 5s">
-            ⏩
+            <FastForward size={16} className="shrink-0" />
           </button>
           <button className="rounded px-1.5 py-1 hover:bg-accent disabled:opacity-40" onClick={onPrev} disabled={!onPrev || disabled} title="上一篇">
-            ⏮
+            <SkipBack size={16} className="shrink-0" />
           </button>
           <button
             className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow hover:opacity-90 disabled:opacity-40"
@@ -94,10 +99,10 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
             disabled={disabled}
             title={state.playing ? '暂停' : '播放'}
           >
-            {state.loading ? '⋯' : state.playing ? '⏸' : '▶'}
+            {state.loading ? <SpinnerDot /> : state.playing ? <Pause size={16} fill="currentColor" className="shrink-0" /> : <Play size={16} fill="currentColor" className="shrink-0 translate-x-[1px]" />}
           </button>
           <button className="rounded px-1.5 py-1 hover:bg-accent disabled:opacity-40" onClick={onNext} disabled={!onNext || disabled} title="下一篇">
-            ⏭
+            <SkipForward size={16} className="shrink-0" />
           </button>
           <span className="w-11 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(duration)}</span>
         </div>
@@ -112,7 +117,7 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
             disabled={disabled}
             title="单篇循环"
           >
-            🔁
+            <Repeat size={14} className="shrink-0" />
           </button>
           {onToggleParagraphLoop && (
             <button
@@ -121,7 +126,7 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
               disabled={disabled}
               title="单句循环（L）"
             >
-              🔂
+              <Repeat1 size={14} className="shrink-0" />
             </button>
           )}
           <button
@@ -179,7 +184,7 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
           {/* 音量 */}
           <div className="hidden items-center gap-1 md:flex">
             <button className="rounded px-1.5 py-1 text-sm hover:bg-accent" onClick={() => engine.toggleMute()} title="静音">
-              {state.muted || state.volume === 0 ? '🔇' : '🔊'}
+              {state.muted || state.volume === 0 ? <VolumeX size={15} className="shrink-0" /> : <Volume2 size={15} className="shrink-0" />}
             </button>
             <input
               type="range"

@@ -66,3 +66,4 @@ services:
 
 volumes:
   elp_pgdata:
+    name: english-learning-platform_elp_pgdata

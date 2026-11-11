@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { I18nProvider, ThemeProvider, useI18n, BilingualReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, type DisplayMode } from '@elp/ui';
+import { LayoutDashboard, BookOpen, Download, BookMarked, Star, Play } from 'lucide-react';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
 import type { ImportJobDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
@@ -64,11 +65,11 @@ function DesktopApp() {
   const { resolved, setMode } = useThemeCtl();
   const [route, setRoute] = useState<Route>({ page: 'dashboard' });
   const nav = [
-    { page: 'dashboard' as const, icon: '📊', label: t('dashboard') },
-    { page: 'courses' as const, icon: '📚', label: t('courses') },
-    { page: 'import' as const, icon: '📥', label: t('importCenter') },
-    { page: 'vocabulary' as const, icon: '🔤', label: t('vocabulary') },
-    { page: 'favorites' as const, icon: '⭐', label: t('favorites') }
+    { page: 'dashboard' as const, Icon: LayoutDashboard, label: t('dashboard') },
+    { page: 'courses' as const, Icon: BookOpen, label: t('courses') },
+    { page: 'import' as const, Icon: Download, label: t('importCenter') },
+    { page: 'vocabulary' as const, Icon: BookMarked, label: t('vocabulary') },
+    { page: 'favorites' as const, Icon: Star, label: t('favorites') }
   ];
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -81,7 +82,7 @@ function DesktopApp() {
               className={'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm ' + (route.page === n.page ? 'bg-primary/12 font-medium text-primary' : 'text-muted-foreground hover:bg-muted')}
               onClick={() => setRoute({ page: n.page } as Route)}
             >
-              <span>{n.icon}</span>
+              <n.Icon size={16} className="shrink-0" />
               {n.label}
             </button>
           ))}
@@ -149,7 +150,7 @@ function Dash({ onOpenCourse, onOpenImport }: { onOpenCourse: (id: string) => vo
                 {data.continueLearning.audioName ?? ''} · 上次 {formatTime(data.continueLearning.positionMs)} · {new Date(data.continueLearning.lastLearnedAt).toLocaleString()}
               </div>
             </div>
-            <Button onClick={() => onOpenCourse(data.continueLearning!.courseId)}>▶ 继续</Button>
+            <Button onClick={() => onOpenCourse(data.continueLearning!.courseId)}><Play size={14} fill="currentColor" className="mr-1" />继续</Button>
           </CardContent>
         </Card>
       )}

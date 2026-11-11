@@ -4,14 +4,15 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
 import clsx from 'clsx';
+import { LayoutDashboard, BookOpen, Download, BookMarked, Star } from 'lucide-react';
 import { Badge, Button, useI18n, useTheme } from '@elp/ui';
 
 const NAV = [
-  { href: '/', key: 'dashboard', icon: '📊' },
-  { href: '/courses', key: 'courses', icon: '📚' },
-  { href: '/import', key: 'importCenter', icon: '📥' },
-  { href: '/vocabulary', key: 'vocabulary', icon: '🔤' },
-  { href: '/favorites', key: 'favorites', icon: '⭐' }
+  { href: '/', key: 'dashboard', Icon: LayoutDashboard },
+  { href: '/courses', key: 'courses', Icon: BookOpen },
+  { href: '/import', key: 'importCenter', Icon: Download },
+  { href: '/vocabulary', key: 'vocabulary', Icon: BookMarked },
+  { href: '/favorites', key: 'favorites', Icon: Star }
 ] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -42,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   active ? 'bg-primary/12 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
-                <span>{item.icon}</span>
+                <item.Icon size={16} className="shrink-0" />
                 {t(item.key)}
               </Link>
             );
@@ -69,8 +70,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="text-sm font-semibold">{t('appName')}</div>
         <div className="flex gap-1">
           {NAV.map((item) => (
-            <Link key={item.href} href={item.href} className="rounded px-2 py-1 text-lg">
-              {item.icon}
+            <Link key={item.href} href={item.href} className="rounded px-2 py-1" title={t(item.key)}>
+              <item.Icon size={18} />
             </Link>
           ))}
           <Button variant="ghost" size="sm" onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
