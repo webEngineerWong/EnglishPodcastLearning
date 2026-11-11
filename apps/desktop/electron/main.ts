@@ -5,6 +5,9 @@ import { app, BrowserWindow, Tray, Menu, globalShortcut, dialog, ipcMain, native
 import * as path from 'path';
 import * as fs from 'fs';
 
+// 独立 userData：避免与 dev 版互相持有单实例锁/缓存（必须在首次 getPath('userData') 前设置）
+app.setName('English Learning Platform');
+
 const isDev = !!process.env.ELP_DEV;
 const API_BASE_DEFAULT = 'http://localhost:3001';
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.txt', '.srt', '.mp3', '.m4a', '.wav', '.mp4']);
@@ -117,7 +120,9 @@ function registerIpc() {
   ipcMain.handle('app:platform', () => `${process.platform}-${process.arch}`);
 }
 
+console.log('[main] booting, userData =', app.getPath('userData'));
 const gotLock = app.requestSingleInstanceLock();
+console.log('[main] single-instance lock:', gotLock);
 if (!gotLock) {
   app.quit();
 } else {
@@ -144,6 +149,7 @@ if (!gotLock) {
   });
 }
 
+app.on('quit', () => console.log('[main] quitting, exitCode =', process.exitCode));
 app.on('window-all-closed', () => {
   // macOS 惯例：不退出，留在托盘
   if (process.platform !== 'darwin') app.quit();

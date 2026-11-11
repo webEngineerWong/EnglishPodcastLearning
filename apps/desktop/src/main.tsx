@@ -68,7 +68,16 @@ function DesktopApp() {
 function Dash({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
   const { t } = useI18n();
   const api = useApiClient();
-  const { data } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.getDashboardStats(), refetchInterval: 60_000 });
+  const { data, isError, refetch } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.getDashboardStats(), refetchInterval: 60_000, retry: 2 });
+  if (isError) {
+    return (
+      <EmptyState
+        icon="⚠️"
+        title="无法连接 API (http://localhost:3001)"
+        hint="请确认已启动后端：pnpm dev:api，然后点击重试"
+      />
+    );
+  }
   if (!data) return <Spinner />;
   return (
     <div className="mx-auto max-w-3xl">
@@ -114,7 +123,7 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
       <h1 className="mb-4 text-xl font-semibold">{t('courses')}</h1>
       <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="mb-4 max-w-sm" />
       {!data ? (
-        <Spinner />
+        <EmptyState icon="⚠️" title="无法连接 API" hint="请确认已启动后端：pnpm dev:api" />
       ) : data.items.length === 0 ? (
         <EmptyState icon="📚" title={t('empty')} />
       ) : (
@@ -243,10 +252,11 @@ function ImportPage({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
         const f = await bridge.readLocalFile(p);
         form.append('files', new File([f.data], f.name));
       }
-      const job = await api.uploadToImport([]);
-      void job;
-      // uploadToImport 需要 File 列表；直接用 request 封装
-      const res = await fetch(`http://localhost:3001/api/import`, { method: 'POST', body: form });
+      const res = await fetch(`${api.baseUrl}/api/import`, { method: 'POST', body: form });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `上传失败 (${res.status})`);
+      }
       const json = (await res.json()) as { id: string };
       setJobId(json.id);
       setMsg(`已创建导入任务（${paths.length} 个文件），解析中…`);

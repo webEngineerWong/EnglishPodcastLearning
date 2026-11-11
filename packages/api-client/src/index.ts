@@ -55,6 +55,10 @@ function buildQuery(query?: Query): string {
 export class ApiClient {
   constructor(private opts: ApiClientOptions) {}
 
+  get baseUrl(): string {
+    return this.opts.baseUrl;
+  }
+
   private async request<T>(method: string, path: string, init?: RequestInit): Promise<T> {
     // /storage/* 直链不带 /api 前缀，其余业务路径统一挂 /api
     const prefixed = path.startsWith('/storage/') ? path : `/api${path}`;

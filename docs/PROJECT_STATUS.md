@@ -42,6 +42,16 @@
 - 浏览器实测（IAB）：Dashboard 渲染、EP1 播放器（点击段落→0:08→自动播放→0:09）、单句循环锁回 0:08、EP23（真实 MP3 20:07）点击段落→0:48→播放至 0:50
 - Web build：7 路由全部生成 ✓
 
+## 2026-11-12 追加 2：Electron 打包版可用性修复
+
+用户反馈打包客户端"一直转圈"。根因链与修复：
+1. **CORS 拒绝**：打包版从 file:// 加载（Origin `null`）不在白名单 → API CORS 改为回调式放行（3000/5173/null）。
+2. **无限转圈 UX**：查询失败后永远 Spinner → Dashboard/课程页改为错误提示 + 重试指引。
+3. **导入按钮空请求**：桌面导入页多余的一次空表单请求（必 400）→ 删除，改用 `api.baseUrl`。
+4. **打包版静默退出**：userData 与 dev 版相同（`@elp/desktop`）→ 共用单实例锁，dev 窗口开着时打包版立即退出 → `app.setName('English Learning Platform')` 独立 userData。
+5. **builder 产物坏签名 + asar 完整性校验**：afterPack 用 @electron/fuses 关闭 `EnableEmbeddedAsarIntegrityValidation` 并自动 ad-hoc 重签。
+6. 产物：`release/mac-arm64/English Learning Platform.app`（可正常启动并连接 API）。
+
 ## 2026-11-12 追加：双语字幕导入（用户反馈修复）
 
 用户反馈"导入不能解析中文"（英文/中文字幕是两个独立 SRT 文件）。根因与修复：

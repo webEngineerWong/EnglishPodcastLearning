@@ -10,8 +10,13 @@ async function bootstrap() {
   app.setGlobalPrefix('api', { exclude: ['storage/(.*)'] });
   const port = Number(process.env.PORT ?? 3001);
 
+  // CORS：Web(:3000)、Electron 渲染端 dev(:5173)、打包版 file://（Origin 为 "null"）均放行
   app.enableCors({
-    origin: (process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(','),
+    origin: (origin, cb) => {
+      const allow = (process.env.WEB_ORIGIN ?? 'http://localhost:3000,http://localhost:5173').split(',');
+      if (!origin || origin === 'null' || allow.includes(origin.trim())) return cb(null, true);
+      return cb(null, false);
+    },
     credentials: true
   });
 
