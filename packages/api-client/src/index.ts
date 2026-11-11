@@ -206,6 +206,10 @@ export class ApiClient {
   deleteImportJob(id: ID) {
     return this.del<void>(`/import/jobs/${id}`);
   }
+  /** 跨任务聚合：分次上传的资料按集数自动凑组 */
+  rescan() {
+    return this.post<{ grouped: number; jobs: string[] }>('/import/rescan');
+  }
 
   // ---------- 校对（基于 ImportFile 草稿，index 定位） ----------
   getImportFileDraft(fileId: ID) {

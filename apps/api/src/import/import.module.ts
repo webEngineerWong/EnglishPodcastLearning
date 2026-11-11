@@ -83,13 +83,17 @@ export class ImportService {
     const { id: userId } = await this.users.userForRequest();
     if (!files.length) throw new BadRequestException('未选择任何文件');
 
+    // 先统一修复文件名（Latin-1 mojibake + NFC），再取任务名
+    for (const f of files) {
+      f.originalname = fixFilename(f.originalname);
+    }
+
     const job = await this.prisma.importJob.create({
       data: { name: name ?? files[0].originalname.slice(0, 60), status: 'PENDING', createdById: userId, totalFiles: files.length },
       include: { files: true }
     });
 
     for (const f of files) {
-      f.originalname = fixFilename(f.originalname);
       const kind = kindOf(f.originalname);
       if (!kind) throw new BadRequestException(`不支持的文件类型: ${f.originalname}`);
       if (f.size > MAX_BYTES) throw new BadRequestException(`${f.originalname} 超过大小限制`);
@@ -280,6 +284,8 @@ export class ImportService {
     }
 
     await this.matchMedia(jobId);
+    // 跨任务聚合：分次上传的资料自动凑组
+    await this.crossJobMatch().catch((e) => this.logger.warn(`crossJobMatch failed: ${e instanceof Error ? e.message : e}`));
 
     const total = await this.prisma.importFile.count({ where: { jobId } });
     const failedTotal = await this.prisma.importFile.count({ where: { jobId, status: 'FAILED' } });
@@ -352,13 +358,101 @@ export class ImportService {
       if (audio) await this.prisma.importFile.update({ where: { id: audio.id }, data: { status: 'MATCHED' } });
     }
 
-    // 4) 音频兜底匹配：任何未匹配音频与同 norm 的 pdf/txt/英文SRT 配对
+    // 4) 音频兜底匹配：未匹配音频与同集数的文本/英文字幕配对；无配对对象则标记 SKIPPED（等待同名文本）
     for (const a of audios.filter((x) => !['MATCHED', 'FAILED'].includes(x.status))) {
       const partner = [...texts, ...srts.filter((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? ''))].find((t) =>
         nameMatch(t.originalName, a.originalName)
       );
-      if (partner) await this.prisma.importFile.update({ where: { id: a.id }, data: { status: 'MATCHED' } });
+      if (partner) {
+        await this.prisma.importFile.update({ where: { id: a.id }, data: { status: 'MATCHED', error: null } });
+      } else {
+        await this.prisma.importFile.update({
+          where: { id: a.id },
+          data: { status: 'SKIPPED', error: '已存储。未找到同集数的文本/字幕 —— 可先发布为音频课程，或在课程详情页补传文本' }
+        });
+      }
     }
+  }
+
+  /**
+   * 跨任务聚合：用户常分多次上传（MP3、英文字幕、中文字幕各一个任务）。
+   * 扫描全局未发布文件，按集数编号（episodeKey）凑组 ——
+   * 组内凑齐"文本 或 英文+中文字幕"时，把组内文件拉到最新任务并重跑匹配。
+   * 内容寻址存储下复制任务引用零成本（同 sha256 同一存储对象）。
+   */
+  async crossJobMatch(): Promise<{ grouped: number; jobs: string[] }> {
+    const allFiles = await this.prisma.importFile.findMany({
+      where: { status: { in: ['PARSED', 'MATCHED', 'SKIPPED', 'PENDING'] } },
+      orderBy: { createdAt: 'asc' },
+      include: { job: { select: { status: true } } }
+    });
+    const bound = await this.prisma.documentAsset.findMany({ select: { importFileId: true } });
+    const boundSet = new Set(bound.map((b) => b.importFileId).filter(Boolean));
+    // 排除已发布绑定的文件与仍在处理中的任务（避免干扰进行中的解析）
+    const pool = allFiles.filter((f) => !boundSet.has(f.id) && f.job.status !== 'RUNNING');
+
+    const groups = new Map<string, typeof pool>();
+    for (const f of pool) {
+      const key = episodeKey(f.originalName);
+      if (!key) continue;
+      const arr = groups.get(key) ?? [];
+      arr.push(f);
+      groups.set(key, arr);
+    }
+
+    let grouped = 0;
+    const touchedJobs = new Set<string>();
+    for (const files of groups.values()) {
+      if (files.length < 2) continue;
+      const texts = files.filter((f) => ['pdf', 'txt'].includes(f.kind));
+      const enSrts = files.filter((f) => f.kind === 'srt' && (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'en');
+      const zhSrts = files.filter((f) => f.kind === 'srt' && (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'zh');
+
+      // 可凑组：有文本文件，或有英+中双字幕（可合成双语）
+      const canAssemble = texts.length > 0 || (enSrts.length > 0 && zhSrts.length > 0);
+      if (!canAssemble) continue;
+
+      // 目标任务 = 组内最新文件的所属任务
+      const latest = [...files].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      const targetJobId = latest.jobId;
+
+      for (const f of files) {
+        if (f.jobId === targetJobId) continue;
+        const dup = await this.prisma.importFile.findFirst({ where: { jobId: targetJobId, sha256: f.sha256 } });
+        if (dup) continue;
+        await this.prisma.importFile.create({
+          data: {
+            jobId: targetJobId,
+            kind: f.kind,
+            originalName: f.originalName,
+            storageKey: f.storageKey,
+            sha256: f.sha256,
+            sizeBytes: f.sizeBytes,
+            status: AUDIO_KINDS.includes(f.kind as ImportFileKind) && f.status === 'SKIPPED' ? 'PENDING' : f.status,
+            parsedJson: f.parsedJson ?? undefined,
+            paragraphCount: f.paragraphCount ?? undefined
+          }
+        });
+        // 原任务中的源文件标记已并入
+        await this.prisma.importFile
+          .update({ where: { id: f.id }, data: { status: 'MATCHED', error: '已并入最新任务聚合发布' } })
+          .catch(() => undefined);
+        grouped++;
+      }
+      touchedJobs.add(targetJobId);
+    }
+
+    for (const jobId of touchedJobs) {
+      await this.matchMedia(jobId).catch(() => undefined);
+      const job = await this.prisma.importJob.findUnique({ where: { id: jobId }, include: { files: true } });
+      if (job) {
+        const total = job.files.length;
+        const failed = job.files.filter((f) => f.status === 'FAILED').length;
+        const status = failed === 0 ? 'REVIEWING' : failed === total ? 'FAILED' : 'PARTIALLY_FAILED';
+        await this.prisma.importJob.update({ where: { id: jobId }, data: { status } });
+      }
+    }
+    return { grouped, jobs: [...touchedJobs] };
   }
 
   /**
@@ -772,6 +866,15 @@ export class ImportService {
         .map((d) => d.importFileId)
         .filter(Boolean)
     );
+    // 内容寻址防重：同 sha256 的文件已发布过 → 该文件跳过（避免复制进来的同内容文件重复建课）
+    const publishedStorageKeys = new Set(
+      (
+        await this.prisma.documentAsset.findMany({
+          where: { storageKey: { in: job.files.map((f) => f.storageKey) } },
+          select: { storageKey: true }
+        })
+      ).map((d) => d.storageKey)
+    );
     const isPublishable = (f: { kind: string; parsedJson: unknown }) =>
       ['pdf', 'txt'].includes(f.kind) ||
       (f.kind === 'srt' && (f.parsedJson as { meta?: { synthesized?: string } } | null)?.meta?.synthesized === 'bilingual');
@@ -780,9 +883,58 @@ export class ImportService {
         isPublishable(f) &&
         ['PARSED', 'MATCHED'].includes(f.status) &&
         !publishedFileIds.has(f.id) &&
+        !publishedStorageKeys.has(f.storageKey) &&
         (!input?.fileIds || input.fileIds.includes(f.id))
     );
-    if (textFiles.length === 0) throw new BadRequestException('任务中没有可发布的已解析文本文件（或已全部发布过）');
+    if (textFiles.length === 0) {
+      // 纯音频任务：发布为"仅音频课程"（文本可后续在课程详情页补传）
+      const audioOnly = job.files.filter(
+        (f) => AUDIO_KINDS.includes(f.kind as ImportFileKind) && ['MATCHED', 'SKIPPED'].includes(f.status) && !publishedFileIds.has(f.id)
+      );
+      if (audioOnly.length === 0) throw new BadRequestException('任务中没有可发布的内容（或已全部发布过）');
+      const { id: userId } = await this.users.userForRequest();
+      const courseIds: string[] = [];
+      for (const af of audioOnly) {
+        const course = await this.prisma.course.create({
+          data: {
+            title: cleanTitle(af.originalName),
+            difficulty: 3,
+            tags: ['audio-only'],
+            status: 'PUBLISHED',
+            createdById: userId,
+            sourceJobId: job.id
+          }
+        });
+        const audioAsset = await this.prisma.audioAsset.create({
+          data: {
+            courseId: course.id,
+            storageKey: af.storageKey,
+            originalName: af.originalName,
+            mimeType: af.kind === 'mp3' ? 'audio/mpeg' : af.kind === 'wav' ? 'audio/wav' : af.kind === 'm4a' ? 'audio/mp4' : 'video/mp4',
+            sizeBytes: af.sizeBytes,
+            order: 0
+          }
+        });
+        await this.prisma.documentAsset
+          .create({
+            data: {
+              courseId: course.id,
+              kind: af.kind === 'mp4' ? 'mp4' : (af.kind as 'pdf' | 'txt' | 'srt'),
+              storageKey: af.storageKey,
+              originalName: af.originalName,
+              mimeType: audioAsset.mimeType,
+              sizeBytes: af.sizeBytes,
+              sha256: af.sha256,
+              importFileId: af.id
+            }
+          })
+          .catch(() => undefined);
+        courseIds.push(course.id);
+        await this.prisma.importFile.update({ where: { id: af.id }, data: { status: 'MATCHED', error: null } });
+      }
+      await this.prisma.importJob.update({ where: { id: job.id }, data: { status: 'COMPLETED' } });
+      return { courseId: courseIds[0], courseIds, paragraphCount: 0 };
+    }
 
     const { id: userId } = await this.users.userForRequest();
     const createdCourses: string[] = [];
@@ -991,6 +1143,12 @@ export class ImportController {
   @Get('files/:fileId/draft')
   draft(@Param('fileId') fileId: string) {
     return this.service.getFileDraft(fileId);
+  }
+
+  /** 手动触发跨任务聚合（分次上传后点击"重新匹配"） */
+  @Post('rescan')
+  rescan() {
+    return this.service.crossJobMatch();
   }
 
   @Post('jobs/:id/publish')

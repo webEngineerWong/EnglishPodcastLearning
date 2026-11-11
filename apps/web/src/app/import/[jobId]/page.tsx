@@ -86,7 +86,9 @@ export default function ReviewPage() {
   if (!job) return <EmptyState title="任务不存在" />;
 
   const textFiles = job.files.filter((f) => ['pdf', 'txt'].includes(f.kind));
-  const audioFiles = job.files.filter((f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind));
+  const audioFiles = job.files.filter(
+    (f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind) && ['MATCHED', 'SKIPPED'].includes(f.status)
+  );
 
   return (
     <div className="mx-auto max-w-6xl pb-8">
@@ -125,8 +127,11 @@ export default function ReviewPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {f.paragraphCount != null && <span className="text-xs text-muted-foreground">{f.paragraphCount} 段</span>}
-                  <Badge tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'}>
-                    {f.status}
+                  <Badge
+                    tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'}
+                    title={f.status === 'SKIPPED' ? '已存储，未找到同集数的文本/字幕' : undefined}
+                  >
+                    {f.status === 'SKIPPED' ? '待文本' : f.status}
                   </Badge>
                   {f.status === 'FAILED' && (
                     <Button size="sm" variant="outline" onClick={() => op(async () => {
@@ -276,11 +281,16 @@ export default function ReviewPage() {
       )}
 
       {/* 发布 */}
-      {textFiles.length > 0 && (
+      {(textFiles.length > 0 || audioFiles.length > 0) && (
         <Card className="mt-4">
           <CardContent className="p-4">
             <h3 className="mb-3 text-sm font-semibold">
-              {t('publish')} <span className="text-xs font-normal text-muted-foreground">（{t('publishHint')}，每个文本文件生成一个课程）</span>
+              {t('publish')}{' '}
+              <span className="text-xs font-normal text-muted-foreground">
+                {textFiles.length > 0
+                  ? `（${t('publishHint')}，每个文本文件生成一个课程）`
+                  : '（将发布为仅音频课程，文本可稍后在课程页补传）'}
+              </span>
             </h3>
             <div className="flex flex-wrap items-end gap-2">
               <div className="w-64">

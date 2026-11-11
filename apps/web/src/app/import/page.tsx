@@ -74,7 +74,25 @@ export default function ImportPage() {
       {/* 任务列表 */}
       <Card>
         <CardContent className="p-4">
-          <h2 className="mb-3 text-sm font-semibold">{t('importJobs')}</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">{t('importJobs')}</h2>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const r = (await api.rescan()) as { grouped?: number };
+                  alert(`跨任务聚合完成：${r.grouped ?? 0} 个文件已配对`);
+                  invalidate(['importJobs', 'dashboard']);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : '聚合失败');
+                }
+              }}
+              title="分次上传的 MP3/字幕/文本会按集数自动凑组"
+            >
+              🔍 重新匹配
+            </Button>
+          </div>
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Spinner />

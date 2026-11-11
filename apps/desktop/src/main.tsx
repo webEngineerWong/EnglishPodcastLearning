@@ -594,6 +594,26 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
         </CardContent>
       </Card>
 
+      <div className="mb-4 flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            try {
+              const r = await api.rescan();
+              toast(`跨任务聚合完成：${r.grouped} 个文件已配对`, true);
+              invalidate(['importJobs']);
+              if (jobId) invalidate(['importJob']);
+            } catch (e) {
+              toast(e instanceof Error ? e.message : '聚合失败');
+            }
+          }}
+          title="分次上传的 MP3/字幕/文本会按集数自动凑组"
+        >
+          🔍 重新匹配
+        </Button>
+      </div>
+
       {jobId && job && <JobPanel job={job} onOpenCourse={onOpenCourse} />}
     </div>
   );
@@ -663,7 +683,9 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
                 {f.originalName} {f.paragraphCount != null && <span className="text-xs text-muted-foreground">· {f.paragraphCount} 段</span>}
               </button>
               <div className="flex shrink-0 items-center gap-2">
-                <Badge tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'}>{f.status}</Badge>
+                <Badge tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'} title={f.status === 'SKIPPED' ? '已存储，未找到同集数的文本/字幕' : undefined}>
+                  {f.status === 'SKIPPED' ? '待文本' : f.status}
+                </Badge>
                 {f.status === 'FAILED' && (
                   <Button size="sm" variant="outline" onClick={() => retry.mutate(f.id)}>
                     {t('retry')}
@@ -745,6 +767,9 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
                 ✓ {t('confirm')} & {t('publish')}
               </Button>
             </div>
+            {job.files.every((f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind)) && (
+              <div className="mt-3 text-xs text-muted-foreground">将发布为仅音频课程（无文本），文本可稍后在课程页补传</div>
+            )}
           </div>
         )}
       </CardContent>

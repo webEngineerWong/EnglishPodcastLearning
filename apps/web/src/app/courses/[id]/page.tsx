@@ -31,6 +31,7 @@ export default function CourseDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [activeParagraphId, setActiveParagraphId] = useState<string | null>(null);
   const [showTiming, setShowTiming] = useState(false);
+  const appendRef = useRef<HTMLInputElement>(null);
   const resumeMs = useMemo(() => Number(searchParams.get('resume') ?? 0), [searchParams]);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
@@ -157,6 +158,33 @@ export default function CourseDetailPage() {
           <>
             <Button variant="outline" onClick={() => router.push('/courses')}>
               ← {t('courses')}
+            </Button>
+            <input
+              ref={appendRef}
+              type="file"
+              accept=".mp3,.m4a,.wav,.pdf,.txt,.srt"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const ext = file.name.toLowerCase().split('.').pop() ?? '';
+                const isAudio = ['mp3', 'm4a', 'wav'].includes(ext);
+                const upload = isAudio ? Promise.resolve(api.uploadAudio(courseId, file)) : Promise.resolve(api.uploadDocument(courseId, file));
+                void upload
+                  .then(() => {
+                    setToast('已追加：' + file.name);
+                    setTimeout(() => setToast(null), 2500);
+                    return api.getCourse(courseId).then(setCourse);
+                  })
+                  .catch((err) => {
+                    setToast(err instanceof Error ? err.message : '上传失败');
+                    setTimeout(() => setToast(null), 2500);
+                  });
+                e.target.value = '';
+              }}
+            />
+            <Button variant="outline" onClick={() => appendRef.current?.click()}>
+              📎 追加音频/文本
             </Button>
             <Button variant={showTiming ? 'active' : 'outline'} onClick={() => setShowTiming(!showTiming)}>
               ⏱ {t('paragraphTime')}
