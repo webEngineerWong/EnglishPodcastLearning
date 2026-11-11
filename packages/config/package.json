@@ -1,0 +1,10 @@
+{
+  "name": "@elp/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["tsconfig", "tailwind-preset.cjs", "eslint-base.cjs"],
+  "exports": {
+    "./tailwind-preset.cjs": "./tailwind-preset.cjs",
+    "./eslint-base.cjs": "./eslint-base.cjs"
+  }
+}

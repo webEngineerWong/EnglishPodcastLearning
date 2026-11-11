@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: elp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: elp
+      POSTGRES_PASSWORD: elp_dev_password
+      POSTGRES_DB: elp
+    ports:
+      - "5433:5432"
+    volumes:
+      - elp_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elp -d elp"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  elp_pgdata:

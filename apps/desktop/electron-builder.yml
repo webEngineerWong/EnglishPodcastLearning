@@ -1,0 +1,16 @@
+appId: dev.elp.desktop
+productName: English Learning Platform
+directories:
+  output: release
+files:
+  - renderer-dist/**
+  - dist-electron/**
+  - package.json
+mac:
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  identity: null

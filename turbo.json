@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalEnv": ["DATABASE_URL", "PORT", "STORAGE_DRIVER", "STORAGE_LOCAL_ROOT", "NEXT_PUBLIC_API_URL", "NODE_ENV", "WEB_ORIGIN", "MAX_UPLOAD_MB", "DEFAULT_USER_EMAIL", "PDF_PARSER_PYTHON", "PDF_PARSER_SCRIPT"],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**", "!.next/cache/**", "out/**", "dist-electron/**", "renderer-dist/**"] },
+    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
+    "lint": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"] }
+  }
+}

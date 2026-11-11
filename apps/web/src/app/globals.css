@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 224 20% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 20% 12%;
+  --primary: 238 70% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 94%;
+  --secondary-foreground: 224 20% 12%;
+  --muted: 220 14% 95%;
+  --muted-foreground: 224 10% 45%;
+  --accent: 238 80% 95%;
+  --accent-foreground: 238 70% 40%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 90%;
+  --input: 220 13% 88%;
+  --ring: 238 70% 55%;
+}
+
+.dark {
+  --background: 226 24% 8%;
+  --foreground: 220 20% 92%;
+  --card: 226 22% 11%;
+  --card-foreground: 220 20% 92%;
+  --primary: 238 85% 68%;
+  --primary-foreground: 226 40% 10%;
+  --secondary: 226 18% 16%;
+  --secondary-foreground: 220 20% 92%;
+  --muted: 226 18% 16%;
+  --muted-foreground: 220 10% 60%;
+  --accent: 238 40% 22%;
+  --accent-foreground: 238 90% 80%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 226 16% 20%;
+  --input: 226 16% 22%;
+  --ring: 238 85% 68%;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

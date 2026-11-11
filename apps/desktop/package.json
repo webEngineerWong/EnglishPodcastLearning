@@ -1,0 +1,37 @@
+{
+  "name": "@elp/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build-main.mjs && vite build",
+    "start": "electron .",
+    "lint": "eslint src electron --ext .ts,.tsx",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "package:dir": "node scripts/build-main.mjs && vite build && electron-builder --dir",
+    "package:dmg": "node scripts/build-main.mjs && vite build && electron-builder"
+  },
+  "dependencies": {
+    "@elp/api-client": "workspace:*",
+    "@elp/learning-core": "workspace:*",
+    "@elp/player": "workspace:*",
+    "@elp/types": "workspace:*",
+    "@elp/ui": "workspace:*",
+    "@tanstack/react-query": "^5.62.11",
+    "clsx": "^2.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

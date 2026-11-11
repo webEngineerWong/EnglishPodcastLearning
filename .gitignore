@@ -1,0 +1,39 @@
+node_modules/
+dist/
+dist-electron/
+renderer-dist/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# env
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# data / storage(本地生成的文件不入库)
+data/storage/
+data/uploads/
+data/imports/*
+!data/imports/.gitkeep
+data/samples/*
+!data/samples/.gitkeep
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# electron build
+release/
+*.dmg
+*.zip
+
+# misc
+.DS_Store
+playwright-report/
+test-results/

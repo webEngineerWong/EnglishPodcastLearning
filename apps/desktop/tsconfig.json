@@ -1,0 +1,34 @@
+{
+  "extends": "../../packages/config/tsconfig/react.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "@elp/types": [
+        "../../packages/types/src/index.ts"
+      ],
+      "@elp/api-client": [
+        "../../packages/api-client/src/index.ts"
+      ],
+      "@elp/learning-core": [
+        "../../packages/learning-core/src/index.ts"
+      ],
+      "@elp/player": [
+        "../../packages/player/src/index.ts"
+      ],
+      "@elp/player/loop": [
+        "../../packages/player/src/loop.ts"
+      ],
+      "@elp/ui": [
+        "../../packages/ui/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

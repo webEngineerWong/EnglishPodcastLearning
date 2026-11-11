@@ -1,0 +1,355 @@
+// English Learning Platform - Prisma Schema
+// PostgreSQL，支持多用户；音频时间戳一律可空，严禁伪造。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum TranscriptStatus {
+  DRAFT
+  REVIEWED
+  PUBLISHED
+}
+
+enum ParagraphType {
+  PARAGRAPH
+  HEADING
+}
+
+enum ReviewStatus {
+  PENDING
+  EDITED
+  CONFIRMED
+}
+
+enum ImportJobStatus {
+  PENDING
+  RUNNING
+  REVIEWING
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+}
+
+enum ImportFileKind {
+  pdf
+  txt
+  srt
+  mp3
+  mp4
+  wav
+  m4a
+}
+
+enum ImportFileStatus {
+  PENDING
+  PARSING
+  PARSED
+  MATCHED
+  SKIPPED
+  DUPLICATE
+  FAILED
+}
+
+enum VocabularyStatus {
+  NEW
+  LEARNING
+  MASTERED
+}
+
+enum FavoriteType {
+  COURSE
+  PARAGRAPH
+}
+
+enum StorageDriver {
+  local
+  r2
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  name      String?
+  locale    String   @default("zh")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  courses         Course[]
+  favorites       Favorite[]
+  progress        LearningProgress[]
+  sessions        LearningSession[]
+  userVocabulary  UserVocabulary[]
+  importJobs      ImportJob[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  courses Course[]
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  notes       String?      @db.Text
+  difficulty  Int          @default(3)
+  tags        String[]     @default([])
+  status      CourseStatus @default(DRAFT)
+  coverKey    String?
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  sourceJobId String?
+  sourceJob   ImportJob? @relation("courseSourceJob", fields: [sourceJobId], references: [id], onDelete: SetNull)
+
+  audios         AudioAsset[]
+  documents      DocumentAsset[]
+  transcripts    Transcript[]
+  favorites      Favorite[]
+  progress       LearningProgress[]
+  sessions       LearningSession[]
+  userVocabulary UserVocabulary[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([updatedAt])
+}
+
+model AudioAsset {
+  id           String   @id @default(cuid())
+  courseId     String
+  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  storageKey   String
+  originalName String
+  mimeType     String   @default("audio/mpeg")
+  durationSec  Int?
+  sizeBytes    Int      @default(0)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  progress LearningProgress[]
+  sessions LearningSession[]
+
+  @@index([courseId])
+}
+
+model DocumentAsset {
+  id           String         @id @default(cuid())
+  courseId     String?
+  course       Course?        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind         ImportFileKind @default(pdf)
+  storageKey   String
+  originalName String
+  mimeType     String         @default("application/pdf")
+  sizeBytes    Int            @default(0)
+  sha256       String?
+  importFileId String? @unique
+  importFile   ImportFile?    @relation("ImportFileDocument", fields: [importFileId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+
+  @@index([courseId])
+}
+
+model Transcript {
+  id         String          @id @default(cuid())
+  courseId   String
+  course     Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  status     TranscriptStatus @default(DRAFT)
+  sourceType String          @default("import") // import | manual | srt
+  paragraphs TranscriptParagraph[]
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([courseId])
+}
+
+model TranscriptParagraph {
+  id           String       @id @default(cuid())
+  transcriptId String
+  transcript   Transcript   @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  order        Int
+  type         ParagraphType @default(PARAGRAPH)
+  textEn       String?      @db.Text
+  textZh       String?      @db.Text
+  // 音频时间戳：没有准确值时必须为 null
+  startTimeMs  Int?
+  endTimeMs    Int?
+  // PDF 来源信息
+  pageStart    Int?
+  pageEnd      Int?
+  confidence   Float        @default(1)
+  reviewStatus ReviewStatus @default(PENDING)
+  notes        String?      @db.Text
+  importFileId String?
+
+  sentences TranscriptSentence[]
+  favorites Favorite[]
+  userVocab UserVocabulary[]
+
+  @@index([transcriptId, order])
+}
+
+model TranscriptSentence {
+  id          String              @id @default(cuid())
+  paragraphId String
+  paragraph   TranscriptParagraph @relation(fields: [paragraphId], references: [id], onDelete: Cascade)
+  order       Int
+  textEn      String              @db.Text
+  textZh      String?             @db.Text
+  startTimeMs Int?
+  endTimeMs   Int?
+
+  @@index([paragraphId, order])
+}
+
+model LearningProgress {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId      String
+  course        Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  audioAssetId  String?
+  audioAsset    AudioAsset? @relation(fields: [audioAssetId], references: [id], onDelete: Cascade)
+  positionMs    Int       @default(0)
+  durationMs    Int?
+  completedAt   DateTime?
+  lastLearnedAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@unique([userId, courseId, audioAssetId])
+  @@index([userId, lastLearnedAt])
+}
+
+model LearningSession {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId     String
+  course       Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  audioAssetId String?
+  audioAsset   AudioAsset? @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  durationMs   Int       @default(0)
+
+  @@index([userId, startedAt])
+}
+
+model Vocabulary {
+  id           String  @id @default(cuid())
+  word         String  @unique
+  phonetic     String?
+  definitionZh String? @db.Text
+  definitionEn String? @db.Text
+
+  userEntries UserVocabulary[]
+}
+
+model UserVocabulary {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vocabularyId     String
+  vocabulary       Vocabulary       @relation(fields: [vocabularyId], references: [id], onDelete: Cascade)
+  exampleSentence  String?          @db.Text
+  status           VocabularyStatus @default(NEW)
+  reviewCount      Int              @default(0)
+  lastReviewedAt   DateTime?
+  sourceCourseId   String?
+  sourceCourse     Course?          @relation(fields: [sourceCourseId], references: [id], onDelete: SetNull)
+  sourceParagraphId String?
+  sourceParagraph  TranscriptParagraph? @relation(fields: [sourceParagraphId], references: [id], onDelete: SetNull)
+  createdAt        DateTime         @default(now())
+
+  @@unique([userId, vocabularyId])
+  @@index([userId, status])
+}
+
+model Favorite {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        FavoriteType @default(COURSE)
+  courseId    String?
+  course      Course?      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  paragraphId String?
+  paragraph   TranscriptParagraph? @relation(fields: [paragraphId], references: [id], onDelete: Cascade)
+  note        String?      @db.Text
+  createdAt   DateTime     @default(now())
+
+  @@unique([userId, type, courseId])
+  @@index([userId, type])
+}
+
+model ImportJob {
+  id             String          @id @default(cuid())
+  name           String?
+  status         ImportJobStatus @default(PENDING)
+  totalFiles     Int             @default(0)
+  processedFiles Int             @default(0)
+  failedFiles    Int             @default(0)
+  error          String?         @db.Text
+  createdById    String?
+  createdBy      User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  publishedCourses Course[]      @relation("courseSourceJob")
+  files          ImportFile[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status])
+}
+
+model ImportFile {
+  id           String           @id @default(cuid())
+  jobId        String
+  job          ImportJob        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind         ImportFileKind
+  originalName String
+  storageKey   String
+  sha256       String?
+  sizeBytes    Int              @default(0)
+  status       ImportFileStatus @default(PENDING)
+  error        String?          @db.Text
+  paragraphCount Int?
+  // 解析产物（PDF 段落 JSON 快照，便于重新校对）
+  parsedJson   Json?
+  documentAsset DocumentAsset?  @relation("ImportFileDocument")
+  documentAssetId String?
+  createdAt    DateTime         @default(now())
+
+  @@index([jobId])
+}
+
+model StorageObject {
+  id        String        @id @default(cuid())
+  key       String        @unique
+  driver    StorageDriver @default(local)
+  bucket    String?
+  mimeType  String
+  sizeBytes Int           @default(0)
+  sha256    String?
+  createdAt DateTime      @default(now())
+}
