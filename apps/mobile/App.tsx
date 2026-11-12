@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Linking,
   Pressable,
   RefreshControl,
@@ -48,6 +49,7 @@ type NotesDocument = { id: string; originalName: string; url: string; sizeBytes:
 type CourseDetail = CourseListItem & {
   notes?: string | null;
   notesDocuments?: NotesDocument[];
+  coverUrl?: string | null;
   audios: { id: string; originalName: string; url?: string }[];
   transcript?: { paragraphs: Paragraph[] } | null;
 };
@@ -448,10 +450,17 @@ function CourseScreen({
       player.replace({ uri: audioUrl });
       const resume = resumeMs ?? detail.lastPositionMs ?? 0;
       if (resume > 5000) void player.seekTo(resume / 1000);
-      // 锁屏 / 灵动岛 / 控制中心：标题、所属课程与进度控制
+      // 锁屏 / 灵动岛 / 控制中心：标题、所属课程、封面与进度控制
+      const bundledIcon = Image.resolveAssetSource(require('./assets/icon.png'));
+      const artworkUrl: string | undefined = detail.coverUrl ?? bundledIcon?.uri ?? undefined;
       player.setActiveForLockScreen(
         true,
-        { title: detail.audios[0]?.originalName ?? detail.title, artist: detail.title, albumTitle: '英语学习' },
+        {
+          title: detail.audios[0]?.originalName ?? detail.title,
+          artist: detail.title,
+          albumTitle: '英语学习',
+          artworkUrl
+        },
         { showSeekBackward: true, showSeekForward: true }
       );
     }

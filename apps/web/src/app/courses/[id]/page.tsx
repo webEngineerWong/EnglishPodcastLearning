@@ -34,6 +34,7 @@ export default function CourseDetailPage() {
   const [activeParagraphId, setActiveParagraphId] = useState<string | null>(null);
   const [showTiming, setShowTiming] = useState(false);
   const appendRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<CourseTab>('subtitles');
   const resumeMs = useMemo(() => Number(searchParams.get('resume') ?? 0), [searchParams]);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
@@ -204,6 +205,31 @@ export default function CourseDetailPage() {
             />
             <Button variant="outline" onClick={() => appendRef.current?.click()}>
               📎 追加音频/文本
+            </Button>
+            <input
+              ref={coverRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,.webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                void api
+                  .uploadCourseCover(courseId, file)
+                  .then(() => {
+                    setToast('封面已更新：' + file.name);
+                    setTimeout(() => setToast(null), 2500);
+                    return api.getCourse(courseId).then(setCourse);
+                  })
+                  .catch((err) => {
+                    setToast(err instanceof Error ? err.message : '封面上传失败');
+                    setTimeout(() => setToast(null), 2500);
+                  });
+                e.target.value = '';
+              }}
+            />
+            <Button variant="outline" onClick={() => coverRef.current?.click()}>
+              🖼 设置封面
             </Button>
             <Button variant={showTiming ? 'active' : 'outline'} onClick={() => setShowTiming(!showTiming)}>
               ⏱ {t('paragraphTime')}

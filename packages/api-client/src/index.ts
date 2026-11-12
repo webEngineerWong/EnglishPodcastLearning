@@ -155,6 +155,12 @@ export class ApiClient {
   deleteCourse(id: ID) {
     return this.del<void>(`/courses/${id}`);
   }
+  /** 设置课程封面（锁屏/灵动岛卡片与移动端展示） */
+  uploadCourseCover(id: ID, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<{ coverKey: string; coverUrl: string }>('POST', `/courses/${id}/cover`, { body: form });
+  }
   setCourseFavorite(id: ID, favorite: boolean) {
     return this.request<{ favorite: boolean }>(favorite ? 'POST' : 'DELETE', `/courses/${id}/favorite`);
   }

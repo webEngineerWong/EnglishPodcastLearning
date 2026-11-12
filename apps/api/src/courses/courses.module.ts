@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, Inject, Injectable, Module, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Injectable, Module, NotFoundException, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.module';
 import { UserResolver } from '../common/current-user';
@@ -186,6 +188,9 @@ export class CoursesService {
         sizeBytes: d.sizeBytes
       }));
 
+    // 课程封面（锁屏/灵动岛卡片与移动端展示用）
+    const coverUrl = c.coverKey ? await this.storage.getSignedUrl(c.coverKey, 7200) : null;
+
     return {
       id: c.id,
       title: c.title,
@@ -205,9 +210,25 @@ export class CoursesService {
       audios: audiosWithUrl,
       documents: documentsWithUrl,
       notesDocuments,
+      coverUrl,
       transcript,
       materials
     };
+  }
+
+  /** 设置课程封面（锁屏/灵动岛卡片）：支持 png/jpg/webp，≤10MB */
+  async setCover(id: string, file: Express.Multer.File) {
+    await this.ensure(id);
+    const allowed = ['.png', '.jpg', '.jpeg', '.webp'];
+    const ext = file.originalname.toLowerCase().replace(/^.*(\.\w+)$/, '$1');
+    if (!allowed.includes(ext)) throw new BadRequestException(`不支持的封面格式: ${file.originalname}`);
+    if (file.size > 10 * 1024 * 1024) throw new BadRequestException('封面图片不能超过 10MB');
+    const date = new Date().toISOString().slice(0, 10);
+    const key = `covers/${date}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    await this.storage.upload(file.buffer, key, file.mimetype || 'image/png');
+    await this.prisma.course.update({ where: { id }, data: { coverKey: key } });
+    const coverUrl = await this.storage.getSignedUrl(key, 7200);
+    return { coverKey: key, coverUrl };
   }
 
   async create(input: {
@@ -312,6 +333,14 @@ export class CoursesController {
   @Post()
   create(@Body() dto: CreateCourseDto) {
     return this.service.create(dto);
+  }
+
+  @Post(':id/cover')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  async setCover(@Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('缺少 file 字段');
+    return this.service.setCover(id, file);
   }
 
   @Patch(':id')
