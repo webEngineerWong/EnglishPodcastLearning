@@ -1,6 +1,8 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # Expo/RN 移动端独立用 npm 管理（CocoaPods/原生依赖结构），不进 pnpm workspace
+  - "!apps/mobile"
 
 # pnpm 12 构建脚本许可（pnpm approve-builds 生成）
 allowBuilds:
