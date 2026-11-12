@@ -415,3 +415,16 @@ open "apps/desktop/release/mac-arm64/English Podcast Learning.app"
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 </div>
+
+## 客户端（三端）
+
+| 端 | 技术栈 | 目录 | 说明 |
+|---|---|---|---|
+| Web | Next.js 15 + React + Tailwind | `apps/web` | 完整功能：导入/校对/播放/学习笔记 |
+| Desktop | Electron + React（复用 Web 组件栈） | `apps/desktop` | 本地文件导入 + 全局快捷键 |
+| iOS | Expo SDK 58 / React Native 0.88（Development Build） | `apps/mobile` | 原生音频后台播放、锁屏/灵动岛控制、系统深色模式 |
+
+共享层：`packages/types`（DTO）、`packages/api-client`（fetch 客户端）、`packages/player`（AudioEngine/循环/时间工具）、`packages/ui`（组件+i18n+主题）、`packages/learning-core`（SRT 解析/对齐/统计纯函数）。
+
+三端通过同一 NestJS API 同步业务数据（课程/段落/时间戳/收藏/生词/进度心跳）。
+详细审计与对齐状态见 `docs/UI_AUDIT.md`、`docs/IOS_AUDIT.md`、`docs/PLATFORM_PARITY.md`、`docs/THREE_PLATFORM_ROADMAP.md`。
