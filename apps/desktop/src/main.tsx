@@ -696,6 +696,13 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(initialJobId ?? null);
+  const [page, setPage] = useState(1);
+
+  // 导入任务历史列表（与 Web 端一致，20 条/页）
+  const { data: jobs, isLoading: jobsLoading } = useQuery({
+    queryKey: ['importJobs', page],
+    queryFn: () => api.listImportJobs({ page, limit: 20 })
+  });
 
   const { data: job } = useQuery({
     queryKey: ['importJob', jobId],
@@ -726,8 +733,9 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
       }
       const json = (await res.json()) as { id: string };
       setJobId(json.id);
+      setPage(1);
       setMsg('已创建导入任务（' + paths.length + ' 个文件），解析中…');
-      invalidate(['dashboard']);
+      invalidate(['dashboard', 'importJobs']);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '导入失败');
     } finally {
@@ -751,32 +759,81 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
         </CardContent>
       </Card>
 
-      <div className="mb-4 flex justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={async () => {
-            try {
-              const r = await api.rescan();
-              toast(`跨任务聚合完成：${r.grouped} 个文件已配对`, true);
-              invalidate(['importJobs']);
-              if (jobId) invalidate(['importJob']);
-            } catch (e) {
-              toast(e instanceof Error ? e.message : '聚合失败');
-            }
-          }}
-          title="分次上传的 MP3/字幕/文本会按集数自动凑组"
-        >
-          🔍 重新匹配
-        </Button>
-      </div>
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">{t('importJobs')}</h2>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const r = await api.rescan();
+                  toast(`跨任务聚合完成：${r.grouped} 个文件已配对`, true);
+                  invalidate(['importJobs']);
+                  if (jobId) invalidate(['importJob']);
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : '聚合失败');
+                }
+              }}
+              title="分次上传的 MP3/字幕/文本会按集数自动凑组"
+            >
+              🔍 重新匹配
+            </Button>
+          </div>
+          {jobsLoading ? (
+            <div className="flex justify-center py-6">
+              <Spinner />
+            </div>
+          ) : !jobs || jobs.items.length === 0 ? (
+            <EmptyState icon="📥" title={t('empty')} />
+          ) : (
+            <div className="space-y-2">
+              {jobs.items.map((j) => (
+                <button
+                  key={j.id}
+                  className={
+                    'flex w-full items-center justify-between rounded-md border px-3 py-2.5 text-left text-sm hover:bg-muted/50 ' +
+                    (jobId === j.id ? 'border-primary' : 'border-border')
+                  }
+                  onClick={() => setJobId(j.id)}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{j.name ?? j.id}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {new Date(j.createdAt).toLocaleString()} · {j.files.length} 个文件
+                      {j.failedFiles > 0 && <span className="text-red-500"> · {j.failedFiles} 失败</span>}
+                    </div>
+                  </div>
+                  <Badge tone={j.status === 'COMPLETED' ? 'success' : j.status === 'FAILED' ? 'danger' : j.status === 'REVIEWING' ? 'warning' : 'default'}>
+                    {j.status}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          )}
+          {jobs && jobs.total > 20 && (
+            <div className="mt-3 flex items-center justify-center gap-3 text-sm">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                ←
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {page} / {Math.ceil(jobs.total / 20)}
+              </span>
+              <Button variant="outline" size="sm" disabled={page >= Math.ceil(jobs.total / 20)} onClick={() => setPage(page + 1)}>
+                →
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {jobId && job && <JobPanel job={job} onOpenCourse={onOpenCourse} />}
+      {jobId && job && <JobPanel job={job} onOpenCourse={onOpenCourse} onClose={() => setJobId(null)} />}
     </div>
   );
 }
 
-function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id: string) => void }) {
+function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCourse: (id: string) => void; onClose: () => void }) {
   const { t } = useI18n();
   const api = useApiClient();
   const invalidate = useInvalidate();
@@ -861,7 +918,12 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
       <CardContent className="p-4">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-sm font-semibold">{job.name ?? job.id}</span>
-          <Badge tone={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning'}>{job.status}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge tone={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning'}>{job.status}</Badge>
+            <Button size="sm" variant="ghost" onClick={onClose} title="收起">
+              ✕
+            </Button>
+          </div>
         </div>
         <div className="mb-3 text-xs text-muted-foreground">
           {textFiles.length} {t('textFilesUnit')} · {audioFiles.length} {t('audioFilesUnit')}
