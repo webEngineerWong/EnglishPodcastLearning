@@ -450,6 +450,12 @@ function CourseScreen({
       player.replace({ uri: audioUrl });
       const resume = resumeMs ?? detail.lastPositionMs ?? 0;
       if (resume > 5000) void player.seekTo(resume / 1000);
+      // 锁屏 / 灵动岛 / 控制中心：标题、所属课程与进度控制
+      player.setActiveForLockScreen(
+        true,
+        { title: detail.audios[0]?.originalName ?? detail.title, artist: detail.title, albumTitle: '英语学习' },
+        { showSeekBackward: true, showSeekForward: true }
+      );
     }
   }, [audioUrl, detail, player, resumeMs]);
 
