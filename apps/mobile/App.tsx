@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import type { ScrollViewInstance } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DEFAULT_API_BASE = 'http://MAC_LAN_IP:3001';
@@ -127,12 +128,36 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [tab, setTab] = useState<TabKey>('courses');
   const [openCourseId, setOpenCourseId] = useState<string | null>(null);
+  const [resumeMs, setResumeMs] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     // 静音键下仍可播放（学习类 App 标准行为）+ 锁屏/后台继续播放
     void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch(() => undefined);
     AsyncStorage.getItem(API_BASE_KEY).then((v) => setApiBase(v || DEFAULT_API_BASE));
   }, []);
+
+  // 灵动岛/冷启动恢复：有近期学习记录（<6 小时且播放位置有效）时直接回到该课程并续播位置
+  useEffect(() => {
+    if (!apiBase || openCourseId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/stats/dashboard`);
+        if (!res.ok) return;
+        const s = (await res.json()) as DashboardStats;
+        const c = s.continueLearning;
+        if (!cancelled && c && c.positionMs > 3000 && Date.now() - new Date(c.lastLearnedAt).getTime() < 6 * 3_600_000) {
+          setResumeMs(c.positionMs);
+          setOpenCourseId(c.courseId);
+        }
+      } catch {
+        /* 离线时留在列表 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   const saveApiBase = useCallback((next: string) => {
     const trimmed = next.trim().replace(/\/+$/, '');
@@ -152,6 +177,7 @@ export default function App() {
 
   const onOpenCourse = (id: string) => {
     setTab('courses');
+    setResumeMs(undefined);
     setOpenCourseId(id);
   };
 
@@ -159,7 +185,14 @@ export default function App() {
     <View style={styles.container}>
       <StatusBar barStyle="default" />
       {openCourseId ? (
-        <CourseScreen apiBase={apiBase} courseId={openCourseId} onBack={() => setOpenCourseId(null)} onOpenSettings={() => setShowSettings(true)} />
+        <CourseScreen
+          key={openCourseId}
+          apiBase={apiBase}
+          courseId={openCourseId}
+          resumeMs={resumeMs}
+          onBack={() => setOpenCourseId(null)}
+          onOpenSettings={() => setShowSettings(true)}
+        />
       ) : (
         <View style={styles.screen}>
           <View style={styles.header}>
@@ -172,7 +205,7 @@ export default function App() {
             {tab === 'dashboard' && <DashboardScreen apiBase={apiBase} onOpenCourse={onOpenCourse} />}
             {tab === 'courses' && <CourseListScreen apiBase={apiBase} onOpen={(c) => setOpenCourseId(c.id)} />}
             {tab === 'vocabulary' && <VocabularyScreen apiBase={apiBase} />}
-            {tab === 'favorites' && <FavoritesScreen apiBase={apiBase} onOpenCourse={onOpenCourse} />}
+            {tab === 'favorites' && <FavoritesScreen apiBase={apiBase} />}
           </View>
           {/* 底部导航（对齐 Web/Electron 菜单） */}
           <View style={styles.tabBar}>
@@ -345,11 +378,13 @@ const FONT_SIZES = [
 function CourseScreen({
   apiBase,
   courseId,
+  resumeMs,
   onBack,
   onOpenSettings
 }: {
   apiBase: string;
   courseId: string;
+  resumeMs?: number;
   onBack: () => void;
   onOpenSettings: () => void;
 }) {
@@ -357,13 +392,16 @@ function CourseScreen({
   const [error, setError] = useState<string | null>(null);
   const player = useAudioPlayer(null);
   const status = useAudioPlayerStatus(player);
-  const loadedAudioRef = useRef<string | null>(null);
+  const seekedOnceRef = useRef(false);
+  const currentTimeRef = useRef(0);
+  currentTimeRef.current = status.currentTime ?? 0;
   const scrollRef = useRef<ScrollViewInstance | null>(null);
   const paragraphYs = useRef<Map<string, number>>(new Map());
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [followAudio, setFollowAudio] = useState(true);
   const [fontIdx, setFontIdx] = useState(1); // 0小 1中 2大
+  const [scrubSec, setScrubSec] = useState<number | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(FONT_SIZE_KEY).then((v) => {
@@ -405,12 +443,29 @@ function CourseScreen({
     };
   }, [apiBase, courseId]);
 
+  // 载入音频并恢复位置（灵动岛/冷启动续播：resumeMs 优先，其次课程记录的上次位置）
   useEffect(() => {
-    if (audioUrl && loadedAudioRef.current !== audioUrl) {
-      loadedAudioRef.current = audioUrl;
+    if (audioUrl && detail && !seekedOnceRef.current) {
+      seekedOnceRef.current = true;
       player.replace({ uri: audioUrl });
+      const resume = resumeMs ?? detail.lastPositionMs ?? 0;
+      if (resume > 5000) void player.seekTo(resume / 1000);
     }
-  }, [audioUrl, player]);
+  }, [audioUrl, detail, player, resumeMs]);
+
+  // 学习心跳：播放中每 5s 上报位置（学习台「继续学习」与跨设备续播数据来源）
+  const audioAssetId = detail?.audios?.[0]?.id;
+  useEffect(() => {
+    if (!status.playing || !audioAssetId) return;
+    const iv = setInterval(() => {
+      void fetch(`${apiBase}/api/progress/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId, audioAssetId, positionMs: Math.round(currentTimeRef.current * 1000), deltaMs: 5000 })
+      }).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [status.playing, audioAssetId, apiBase, courseId]);
 
   const seekTo = useCallback(
     (ms?: number | null) => {
@@ -441,12 +496,12 @@ function CourseScreen({
     }
   }, [status.currentTime, status.playing, paragraphs]);
 
-  // 自动跟随：高亮段滚动到可视区上部
+  // 自动跟随：高亮段滚动到双语滚动区上部
   useEffect(() => {
     if (!followAudio || !activeId) return;
     const y = paragraphYs.current.get(activeId);
     if (typeof y === 'number') {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 72), animated: true });
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 48), animated: true });
     }
   }, [activeId, followAudio]);
 
@@ -472,89 +527,114 @@ function CourseScreen({
           <ActivityIndicator size="large" color="#4f46e5" />
         </View>
       ) : (
-        <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 12 }}>
-          <Text style={styles.detailTitle}>{detail.title}</Text>
+        <>
+          {/* ===== 固定区：标题 / 播放器（进度条） / 笔记 / 备注（不随字幕滚动） ===== */}
+          <ScrollView style={styles.fixedZone} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 6, gap: 10 }}>
+            <Text style={styles.detailTitle}>{detail.title}</Text>
 
-          {audioUrl ? (
-            <View style={styles.playerCard}>
-              <Text numberOfLines={1} style={styles.playerTitle}>
-                🎧 {detail.audios[0].originalName}
-              </Text>
-              <View style={styles.playerRow}>
-                <Pressable style={styles.playBtn} onPress={() => (status.playing ? player.pause() : void player.play())}>
-                  <Text style={styles.playBtnText}>{status.playing ? '⏸ 暂停' : '▶ 播放'}</Text>
-                </Pressable>
-                <Text style={styles.timeText}>
-                  {formatTime((status.currentTime ?? 0) * 1000)} / {formatTime((status.duration ?? 0) * 1000)}
+            {audioUrl ? (
+              <View style={styles.playerCard}>
+                <Text numberOfLines={1} style={styles.playerTitle}>
+                  🎧 {detail.audios[0].originalName}
                 </Text>
-                <Pressable onPress={() => void player.seekTo(Math.max(0, (status.currentTime ?? 0) - 15))}>
-                  <Text style={styles.timeText}>«15s</Text>
-                </Pressable>
-              </View>
-              <View style={styles.playerRow}>
-                {/* 字号调节 */}
-                <Pressable style={styles.smallBtn} onPress={() => changeFont(-1)}>
-                  <Text style={styles.smallBtnText}>A−</Text>
-                </Pressable>
-                <Text style={styles.timeText}>{font.label}</Text>
-                <Pressable style={styles.smallBtn} onPress={() => changeFont(1)}>
-                  <Text style={styles.smallBtnText}>A+</Text>
-                </Pressable>
-                <View style={{ flex: 1 }} />
-                {/* 跟随音轨开关 */}
-                <Pressable style={[styles.smallBtn, followAudio && styles.smallBtnActive]} onPress={() => setFollowAudio(!followAudio)}>
-                  <Text style={[styles.smallBtnText, followAudio && styles.smallBtnTextActive]}>↕ 跟随</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.hintText}>点击段落跳转播放；静音键不影响；锁屏可继续</Text>
-            </View>
-          ) : (
-            <Text style={styles.hintText}>本课程暂无音频</Text>
-          )}
-
-          {(detail.notesDocuments?.length ?? 0) > 0 && (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>📝 学习笔记</Text>
-              {detail.notesDocuments!.map((doc) => (
-                <Pressable key={doc.id} style={styles.docRow} onPress={() => openNotesDoc(doc)}>
-                  <Text numberOfLines={1} style={styles.docName}>
-                    📄 {doc.originalName}
+                {/* 音轨进度条（可拖动） */}
+                <Slider
+                  style={{ width: '100%', height: 30 }}
+                  minimumValue={0}
+                  maximumValue={Math.max(1, status.duration ?? 0)}
+                  value={scrubSec ?? status.currentTime ?? 0}
+                  onValueChange={(v) => setScrubSec(v)}
+                  onSlidingComplete={(v) => {
+                    void player.seekTo(v);
+                    setScrubSec(null);
+                  }}
+                  minimumTrackTintColor="#4f46e5"
+                  maximumTrackTintColor="#c7d2fe"
+                  thumbTintColor="#4f46e5"
+                />
+                <View style={styles.playerRow}>
+                  <Pressable style={styles.playBtn} onPress={() => (status.playing ? player.pause() : void player.play())}>
+                    <Text style={styles.playBtnText}>{status.playing ? '⏸ 暂停' : '▶ 播放'}</Text>
+                  </Pressable>
+                  <Text style={styles.timeText}>
+                    {formatTime((scrubSec ?? status.currentTime ?? 0) * 1000)} / {formatTime((status.duration ?? 0) * 1000)}
                   </Text>
-                  <Text style={styles.openLink}>打开 ↗</Text>
+                  <View style={{ flex: 1 }} />
+                  <Pressable onPress={() => void player.seekTo(Math.max(0, (status.currentTime ?? 0) - 15))}>
+                    <Text style={styles.timeText}>«15s</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.playerRow}>
+                  <Pressable style={styles.smallBtn} onPress={() => changeFont(-1)}>
+                    <Text style={styles.smallBtnText}>A−</Text>
+                  </Pressable>
+                  <Text style={styles.timeText}>{font.label}</Text>
+                  <Pressable style={styles.smallBtn} onPress={() => changeFont(1)}>
+                    <Text style={styles.smallBtnText}>A+</Text>
+                  </Pressable>
+                  <View style={{ flex: 1 }} />
+                  <Pressable style={[styles.smallBtn, followAudio && styles.smallBtnActive]} onPress={() => setFollowAudio(!followAudio)}>
+                    <Text style={[styles.smallBtnText, followAudio && styles.smallBtnTextActive]}>↕ 跟随</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.hintText}>点击段落跳转播放；静音键不影响；锁屏/灵动岛可继续</Text>
+              </View>
+            ) : (
+              <Text style={styles.hintText}>本课程暂无音频</Text>
+            )}
+
+            {(detail.notesDocuments?.length ?? 0) > 0 && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>📝 学习笔记</Text>
+                {detail.notesDocuments!.map((doc) => (
+                  <Pressable key={doc.id} style={styles.docRow} onPress={() => openNotesDoc(doc)}>
+                    <Text numberOfLines={1} style={styles.docName}>
+                      📄 {doc.originalName}
+                    </Text>
+                    <Text style={styles.openLink}>打开 ↗</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {detail.notes ? (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>备注</Text>
+                <Text style={styles.notesText}>{detail.notes}</Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
+          </ScrollView>
+
+          {/* ===== 双语字幕独立滚动区：高度 = 屏幕减去上方固定播放区 ===== */}
+          <ScrollView
+            ref={scrollRef}
+            style={styles.subtitleZone}
+            contentContainerStyle={{ padding: 16, paddingTop: 12, paddingBottom: 24, gap: 10 }}
+          >
+            {paragraphs.map((p) => {
+              const isActive = p.id === activeId;
+              return (
+                <Pressable
+                  key={p.id}
+                  style={[styles.paragraph, isActive && styles.paragraphActive]}
+                  onLayout={(e) => paragraphYs.current.set(p.id, e.nativeEvent.layout.y)}
+                  onPress={() => seekTo(p.startTimeMs)}
+                >
+                  {p.textEn ? (
+                    <Text style={[styles.textEn, { fontSize: font.en }, isActive && styles.textEnActive]}>{p.textEn}</Text>
+                  ) : null}
+                  {p.textZh ? <Text style={[styles.textZh, { fontSize: font.zh }]}>{p.textZh}</Text> : null}
+                  <Text style={styles.timestamp}>
+                    {typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}
+                  </Text>
                 </Pressable>
-              ))}
-            </View>
-          )}
-
-          {detail.notes ? (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>备注</Text>
-              <Text style={styles.notesText}>{detail.notes}</Text>
-            </View>
-          ) : null}
-
-          <Text style={styles.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
-          {paragraphs.map((p) => {
-            const isActive = p.id === activeId;
-            return (
-              <Pressable
-                key={p.id}
-                style={[styles.paragraph, isActive && styles.paragraphActive]}
-                onLayout={(e) => paragraphYs.current.set(p.id, e.nativeEvent.layout.y)}
-                onPress={() => seekTo(p.startTimeMs)}
-              >
-                {p.textEn ? (
-                  <Text style={[styles.textEn, { fontSize: font.en }, isActive && styles.textEnActive]}>{p.textEn}</Text>
-                ) : null}
-                {p.textZh ? <Text style={[styles.textZh, { fontSize: font.zh }]}>{p.textZh}</Text> : null}
-                <Text style={styles.timestamp}>
-                  {typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}
-                </Text>
-              </Pressable>
-            );
-          })}
-          {paragraphs.length === 0 && <Text style={styles.hintText}>本课程暂无文本</Text>}
-        </ScrollView>
+              );
+            })}
+            {paragraphs.length === 0 && <Text style={styles.hintText}>本课程暂无文本</Text>}
+          </ScrollView>
+        </>
       )}
     </View>
   );
@@ -634,7 +714,7 @@ function VocabularyScreen({ apiBase }: { apiBase: string }) {
 
 // ==================== 收藏 ====================
 
-function FavoritesScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCourse: (id: string) => void }) {
+function FavoritesScreen({ apiBase }: { apiBase: string }) {
   const [items, setItems] = useState<FavoriteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -724,6 +804,8 @@ function SettingsModal({ apiBase, onSave, onClose }: { apiBase: string; onSave: 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   screen: { flex: 1 },
+  fixedZone: { flexShrink: 0, maxHeight: '55%' },
+  subtitleZone: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 24 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
   headerTitle: { fontSize: 18, fontWeight: '700' },
