@@ -153,6 +153,7 @@ const zh = {
   audioFilesUnit: '个音频文件',
   publishNotesHint: '学习笔记 PDF 会附到对应课程，不单独生成课程',
   notesOnlyCannotPublish: '只有学习笔记 PDF，无法生成课程（需要同集数的文本或音频）',
+  notesPdfUnit: '份学习笔记',
   uploadFailed: '上传失败'
 } satisfies Record<string, string>;
 
@@ -270,6 +271,7 @@ const en: Dict = {
   audioFilesUnit: 'audio file(s)',
   publishNotesHint: 'Notes PDFs are attached to their matching course; no separate course is created',
   notesOnlyCannotPublish: 'Only notes PDFs — a course needs text or audio of the same episode',
+  notesPdfUnit: 'notes PDF(s)',
   uploadFailed: 'Upload failed'
 };
 

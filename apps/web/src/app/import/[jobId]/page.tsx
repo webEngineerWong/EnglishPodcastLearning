@@ -3,8 +3,8 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, useI18n } from '@elp/ui';
-import type { ImportJobDto, ImportFileDto } from '@elp/types';
-import { api } from '@/lib/api';
+import type { DocumentRole, ImportJobDto, ImportFileDto } from '@elp/types';
+import { api, assetUrl } from '@/lib/api';
 import { useCategories } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
 
@@ -29,6 +29,7 @@ export default function ReviewPage() {
   const { t } = useI18n();
   const [job, setJob] = useState<ImportJobDto | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [notesPreviewId, setNotesPreviewId] = useState<string | null>(null);
   const [paragraphs, setParagraphs] = useState<DraftParagraph[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -53,10 +54,44 @@ export default function ReviewPage() {
     setEditing(null);
   };
 
+  /** 点击文件：学习笔记 → 预览说明；对照文本/字幕 → 段落草稿 */
+  const selectFile = (f: ImportFileDto) => {
+    if (f.kind === 'pdf' && f.docRole === 'notes') {
+      setNotesPreviewId(f.id);
+      setSelectedFileId(null);
+      setParagraphs([]);
+    } else {
+      setNotesPreviewId(null);
+      setSelectedFileId(f.id);
+      void loadDraft(f.id);
+    }
+  };
+
+  const changeRole = async (f: ImportFileDto, role: DocumentRole) => {
+    setBusy(true);
+    try {
+      await api.setImportFileRole(f.id, role);
+      await loadJob();
+      if (role === 'notes') {
+        setNotesPreviewId(f.id);
+        setSelectedFileId(null);
+        setParagraphs([]);
+      } else {
+        setNotesPreviewId(null);
+        if (selectedFileId === f.id) await loadDraft(f.id);
+        else setSelectedFileId(f.id), await loadDraft(f.id);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useMemo(() => {
     void (async () => {
       const j = await loadJob();
-      const textFile = j.files.find((f) => ['pdf', 'txt'].includes(f.kind));
+      const textFile = j.files.find((f) => ['pdf', 'txt'].includes(f.kind) && f.docRole !== 'notes');
       if (textFile) {
         setSelectedFileId(textFile.id);
         await loadDraft(textFile.id);
@@ -85,7 +120,8 @@ export default function ReviewPage() {
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
   if (!job) return <EmptyState title="任务不存在" />;
 
-  const textFiles = job.files.filter((f) => ['pdf', 'txt'].includes(f.kind));
+  const textFiles = job.files.filter((f) => ['pdf', 'txt'].includes(f.kind) && f.docRole !== 'notes');
+  const notesFiles = job.files.filter((f) => f.kind === 'pdf' && f.docRole === 'notes');
   const audioFiles = job.files.filter(
     (f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind) && ['MATCHED', 'SKIPPED'].includes(f.status)
   );
@@ -97,7 +133,8 @@ export default function ReviewPage() {
         subtitle={
           <span className="flex items-center gap-2">
             <Badge tone={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning'}>{job.status}</Badge>
-            {textFiles.length} 个文本文件 · {audioFiles.length} 个音频文件
+            {textFiles.length} {t('textFilesUnit')} · {audioFiles.length} {t('audioFilesUnit')}
+            {notesFiles.length > 0 && <> · {notesFiles.length} {t('notesPdfUnit')}</>}
           </span>
         }
         actions={
@@ -116,16 +153,29 @@ export default function ReviewPage() {
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="shrink-0 text-lg">{fileIcon(f.kind)}</span>
                   <button
-                    className={`truncate text-left ${selectedFileId === f.id ? 'font-medium text-primary' : 'hover:underline'}`}
-                    onClick={() => {
-                      setSelectedFileId(f.id);
-                      void loadDraft(f.id);
-                    }}
+                    className={`truncate text-left ${selectedFileId === f.id || notesPreviewId === f.id ? 'font-medium text-primary' : 'hover:underline'}`}
+                    onClick={() => selectFile(f)}
                   >
                     {f.originalName}
                   </button>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {f.kind === 'pdf' && (
+                    <>
+                      <Badge tone={f.docRole === 'notes' ? 'warning' : 'muted'}>
+                        {f.docRole === 'notes' ? `📝 ${t('notes')}` : t('roleSource')}
+                      </Badge>
+                      <Select
+                        className="h-7 w-28 text-xs"
+                        value={f.docRole ?? 'source'}
+                        disabled={busy}
+                        onChange={(e) => void changeRole(f, e.target.value as DocumentRole)}
+                      >
+                        <option value="source">{t('roleSource')}</option>
+                        <option value="notes">{t('notes')}</option>
+                      </Select>
+                    </>
+                  )}
                   {f.paragraphCount != null && <span className="text-xs text-muted-foreground">{f.paragraphCount} 段</span>}
                   <Badge
                     tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'}
@@ -148,6 +198,24 @@ export default function ReviewPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 学习笔记预览：不做段落校对，原样保存 */}
+      {notesPreviewId && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge tone="warning">📝 {t('notes')}</Badge>
+              <span className="text-sm text-muted-foreground">{t('notesPdfHint')}</span>
+            </div>
+            <iframe
+              title="notes-preview"
+              src={`${assetUrl(`/api/import/files/${notesPreviewId}/raw`)}#view=FitH`}
+              className="w-full rounded-lg border border-border bg-card"
+              style={{ height: 'max(480px, calc(100vh - 22rem))' }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* 段落校对 */}
       {selectedFileId && (
@@ -281,15 +349,17 @@ export default function ReviewPage() {
       )}
 
       {/* 发布 */}
-      {job.status !== 'COMPLETED' && (textFiles.length > 0 || audioFiles.length > 0) && (
+      {job.status !== 'COMPLETED' && (textFiles.length > 0 || audioFiles.length > 0 || notesFiles.length > 0) && (
         <Card className="mt-4">
           <CardContent className="p-4">
             <h3 className="mb-3 text-sm font-semibold">
               {t('publish')}{' '}
               <span className="text-xs font-normal text-muted-foreground">
                 {textFiles.length > 0
-                  ? `（${t('publishHint')}，每个文本文件生成一个课程）`
-                  : '（将发布为仅音频课程，文本可稍后在课程页补传）'}
+                  ? `（${t('publishHint')}，每个文本文件生成一个课程${notesFiles.length > 0 ? `；${t('publishNotesHint')}` : ''}）`
+                  : audioFiles.length > 0
+                    ? `（将发布为仅音频课程，文本可稍后在课程页补传${notesFiles.length > 0 ? `；${t('publishNotesHint')}` : ''}）`
+                    : `（${t('notesOnlyCannotPublish')}）`}
               </span>
             </h3>
             <div className="flex flex-wrap items-end gap-2">
