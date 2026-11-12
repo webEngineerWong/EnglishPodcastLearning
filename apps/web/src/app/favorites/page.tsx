@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
-import { Bookmark } from 'lucide-react';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Spinner, useI18n } from '@elp/ui';
 import { api } from '@/lib/api';
 import { useFavorites, useInvalidate } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -46,7 +45,7 @@ export default function FavoritesPage() {
                 <div className="min-w-0">
                   {f.type === 'COURSE' ? (
                     <Link href={f.courseId ? `/courses/${f.courseId}` : '#'} className="text-sm font-medium hover:text-primary">
-                      <Bookmark size={13} className="mr-1 inline text-primary" />{f.courseTitle ?? '课程'}
+                      <Icon name="favorites" size={13} className="mr-1 inline text-primary" />{f.courseTitle ?? '课程'}
                     </Link>
                   ) : (
                     <div className="text-sm">
@@ -61,13 +60,13 @@ export default function FavoritesPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-red-500"
+                    className="text-destructive"
                     onClick={async () => {
                       await api.removeFavorite(f.id);
                       invalidate(['favorites', 'courses']);
                     }}
                   >
-                    ✕
+                    <Icon name="close" size="sm" />
                   </Button>
                 </div>
               </CardContent>

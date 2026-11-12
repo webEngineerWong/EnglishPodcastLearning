@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-import { I18nProvider, ThemeProvider } from '@elp/ui';
+import { I18nProvider, ThemeProvider, ToastProvider } from '@elp/ui';
 import { AppShell } from '@/components/shell';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <I18nProvider>
-          <AppShell>{children}</AppShell>
+          <ToastProvider>
+            <AppShell>{children}</AppShell>
+          </ToastProvider>
         </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>

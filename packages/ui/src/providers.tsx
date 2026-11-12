@@ -12,7 +12,7 @@ const ThemeContext = createContext<ThemeCtx>({ mode: 'system', resolved: 'light'
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') return 'system';
-    return (localStorage.getItem('elp-theme') as ThemeMode) || 'system';
+    return (localStorage.getItem('elp-theme') as ThemeMode) || 'dark';
   });
   const [resolved, setResolved] = useState<'light' | 'dark'>('light');
 

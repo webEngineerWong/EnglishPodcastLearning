@@ -1,0 +1,71 @@
+/* ============================================================
+   Design Tokens — 唯一来源（Web 与 Desktop 共同 import 此文件）
+   格式：HSL 三元组，Tailwind 通过 hsl(var(--x) / <alpha-value>) 引用
+   对比度：正文 ≥ 4.5:1，图标/边框 ≥ 3:1
+   ============================================================ */
+:root {
+  /* Light */
+  --background: 210 20% 98%;
+  --foreground: 222 22% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 22% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 22% 12%;
+  --muted: 210 18% 95%;
+  --muted-foreground: 220 9% 42%;
+  --secondary: 210 18% 94%;
+  --secondary-foreground: 222 22% 12%;
+  --border: 214 16% 90%;
+  --input: 214 16% 86%;
+  --primary: 195 85% 34%;
+  --primary-hover: 195 85% 29%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 195 60% 94%;
+  --accent-foreground: 195 85% 24%;
+  --success: 152 70% 32%;
+  --success-foreground: 0 0% 100%;
+  --warning: 32 90% 40%;
+  --warning-foreground: 0 0% 100%;
+  --destructive: 0 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 195 85% 34%;
+  --chart-1: 195 85% 34%;
+  --chart-2: 152 60% 38%;
+  --chart-3: 32 90% 45%;
+  --chart-4: 262 50% 52%;
+  --chart-5: 340 65% 50%;
+  --radius: 0.75rem;
+}
+
+.dark {
+  /* Dark：接近深石墨色 */
+  --background: 222 16% 8%;
+  --foreground: 220 20% 94%;
+  --card: 222 15% 11%;
+  --card-foreground: 220 20% 94%;
+  --popover: 222 15% 12%;
+  --popover-foreground: 220 20% 94%;
+  --muted: 222 14% 15%;
+  --muted-foreground: 220 9% 64%;
+  --secondary: 222 14% 17%;
+  --secondary-foreground: 220 20% 94%;
+  --border: 222 12% 20%;
+  --input: 222 12% 24%;
+  --primary: 192 70% 55%;
+  --primary-hover: 192 70% 62%;
+  --primary-foreground: 222 25% 8%;
+  --accent: 195 35% 18%;
+  --accent-foreground: 192 75% 78%;
+  --success: 152 55% 50%;
+  --success-foreground: 222 25% 8%;
+  --warning: 38 90% 60%;
+  --warning-foreground: 222 25% 8%;
+  --destructive: 0 70% 62%;
+  --destructive-foreground: 222 25% 8%;
+  --ring: 192 70% 55%;
+  --chart-1: 192 70% 55%;
+  --chart-2: 152 55% 50%;
+  --chart-3: 38 90% 60%;
+  --chart-4: 262 60% 72%;
+  --chart-5: 340 70% 66%;
+}

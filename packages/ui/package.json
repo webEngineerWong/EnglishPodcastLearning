@@ -14,8 +14,10 @@
   "dependencies": {
     "@elp/player": "workspace:*",
     "@elp/types": "workspace:*",
+    "@radix-ui/react-tooltip": "^1.4.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.71.0"
+    "lucide-react": "^1.71.0",
+    "@elp/icons": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18"

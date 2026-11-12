@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, useI18n } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, useI18n } from '@elp/ui';
 import { api } from '@/lib/api';
 import { useInvalidate, useVocabulary } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -32,7 +32,7 @@ export default function VocabularyPage() {
           <Spinner />
         </div>
       ) : !data || data.length === 0 ? (
-        <EmptyState title={t('empty')} hint="在课程详情页点击段落旁的 🔤 按钮加入生词" />
+        <EmptyState title={t('empty')} hint="在课程详情页点段落的加入生词按钮" />
       ) : (
         <div className="space-y-2">
           {data.map((v) => (
@@ -67,12 +67,13 @@ export default function VocabularyPage() {
                       invalidate(['vocabulary', 'dashboard']);
                     }}
                   >
-                    状态→
+                    状态
+                    <Icon name="arrowRight" size={12} />
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-red-500"
+                    className="text-destructive"
                     onClick={async () => {
                       if (!confirm(t('deleteConfirm'))) return;
                       await api.removeVocabulary(v.id);

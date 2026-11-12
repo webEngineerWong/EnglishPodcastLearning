@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useRef, useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
-import { Inbox, Search } from 'lucide-react';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Spinner, useI18n, useToast } from '@elp/ui';
 import { api } from '@/lib/api';
 import { useImportJobs, useInvalidate } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -20,6 +19,7 @@ export default function ImportPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useImportJobs(page);
   const invalidate = useInvalidate();
+  const { show: showToast } = useToast();
 
   const upload = async (files: FileList | File[]) => {
     const list = Array.from(files);
@@ -58,7 +58,7 @@ export default function ImportPage() {
           void upload(e.dataTransfer.files);
         }}
       >
-        <div className="mb-2 flex justify-center"><Inbox size={32} className="text-primary" /></div>
+        <div className="mb-2 flex justify-center"><Icon name="inbox" size={32} className="text-primary" /></div>
         <div className="text-sm font-medium">{t('uploadFiles')}</div>
         <div className="mt-1 text-xs text-muted-foreground">{t('importHint')}</div>
         <div className="mt-1 text-[11px] text-muted-foreground">
@@ -83,15 +83,15 @@ export default function ImportPage() {
               onClick={async () => {
                 try {
                   const r = (await api.rescan()) as { grouped?: number };
-                  alert(`跨任务聚合完成：${r.grouped ?? 0} 个文件已配对`);
+                  showToast(`跨任务聚合完成：${r.grouped ?? 0} 个文件已配对`);
                   invalidate(['importJobs', 'dashboard']);
                 } catch (e) {
-                  alert(e instanceof Error ? e.message : '聚合失败');
+                  showToast(e instanceof Error ? e.message : '聚合失败', 'error');
                 }
               }}
               title="分次上传的 MP3/字幕/文本会按集数自动凑组"
             >
-              <Search size={13} className="mr-1 inline" /> 重新匹配
+              <Icon name="scanSearch" size="sm" className="mr-1 inline" /> 重新匹配
             </Button>
           </div>
           {isLoading ? (
@@ -112,7 +112,7 @@ export default function ImportPage() {
                     <div className="truncate font-medium">{j.name ?? j.id}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {new Date(j.createdAt).toLocaleString()} · {j.files.length} 个文件
-                      {j.failedFiles > 0 && <span className="text-red-500"> · {j.failedFiles} 失败</span>}
+                      {j.failedFiles > 0 && <span className="text-destructive"> · {j.failedFiles} 失败</span>}
                     </div>
                   </div>
                   <Badge tone={j.status === 'COMPLETED' ? 'success' : j.status === 'FAILED' ? 'danger' : j.status === 'REVIEWING' ? 'warning' : 'default'}>
@@ -125,13 +125,13 @@ export default function ImportPage() {
           {data && data.total > 20 && (
             <div className="mt-4 flex items-center justify-center gap-3 text-sm">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                ←
+                <Icon name="chevronLeft" size="sm" />
               </Button>
               <span className="text-muted-foreground">
                 {page} / {Math.ceil(data.total / 20)}
               </span>
               <Button variant="outline" size="sm" disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(page + 1)}>
-                →
+                <Icon name="chevronRight" size="sm" />
               </Button>
             </div>
           )}

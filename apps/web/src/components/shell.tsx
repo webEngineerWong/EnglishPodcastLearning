@@ -4,15 +4,14 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
 import clsx from 'clsx';
-import { House, Library, FileUp, BookOpen, Bookmark, Moon, Sun, Headphones } from 'lucide-react';
-import { Badge, Button, useI18n, useTheme } from '@elp/ui';
+import { Badge, Button, Icon, Tooltip, useI18n, useTheme } from '@elp/ui';
 
 const NAV = [
-  { href: '/', key: 'dashboard', Icon: House },
-  { href: '/courses', key: 'courses', Icon: Library },
-  { href: '/import', key: 'importCenter', Icon: FileUp },
-  { href: '/vocabulary', key: 'vocabulary', Icon: BookOpen },
-  { href: '/favorites', key: 'favorites', Icon: Bookmark }
+  { href: '/', key: 'dashboard', name: 'dashboard' },
+  { href: '/courses', key: 'courses', name: 'library' },
+  { href: '/import', key: 'importCenter', name: 'import' },
+  { href: '/vocabulary', key: 'vocabulary', name: 'vocabulary' },
+  { href: '/favorites', key: 'favorites', name: 'favorites' }
 ] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -26,7 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 flex-col border-r border-border bg-card md:flex">
         <div className="flex items-center gap-2 px-4 py-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Headphones size={17} strokeWidth={2.2} />
+            <Icon name="audio" size={17} strokeWidth={2.2} />
           </div>
           <div>
             <div className="text-sm font-semibold">{t('appName')}</div>
@@ -45,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   active ? 'bg-primary/12 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
-                <item.Icon size={16} className="shrink-0" />
+                <Icon name={item.name} size="sm" className="shrink-0" />
                 {t(item.key)}
               </Link>
             );
@@ -60,13 +59,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{t('darkMode')}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={t('darkMode')}
-              onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}
-            >
-              {resolved === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            <Button variant="ghost" size="sm" aria-label={t('darkMode')} onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
+              <Icon name={resolved === 'dark' ? 'sun' : 'moon'} size="sm" />
             </Button>
           </div>
         </div>
@@ -78,11 +72,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex gap-1">
           {NAV.map((item) => (
             <Link key={item.href} href={item.href} className="rounded px-2 py-1" title={t(item.key)} aria-label={t(item.key)}>
-              <item.Icon size={18} />
+              <Icon name={item.name} size="md" />
             </Link>
           ))}
           <Button variant="ghost" size="sm" aria-label={t('darkMode')} onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
-            {resolved === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            <Icon name={resolved === 'dark' ? 'sun' : 'moon'} size="sm" />
           </Button>
         </div>
       </div>
@@ -114,12 +108,12 @@ export function CourseCover({
   title: string;
   className?: string;
 }) {
-  const initial = title.trim().charAt(0).toUpperCase() || '🎧';
+  const initial = title.trim().charAt(0).toUpperCase();
   return url ? (
     <img src={url} alt="" className={clsx('shrink-0 object-cover', className)} loading="lazy" />
   ) : (
     <div
-      className={clsx('flex shrink-0 select-none items-center justify-center bg-gradient-to-br from-primary/80 to-primary font-semibold text-primary-foreground', className)}
+      className={clsx('flex shrink-0 select-none items-center justify-center bg-primary font-semibold text-primary-foreground', className)}
       aria-hidden
     >
       {initial}
@@ -128,10 +122,13 @@ export function CourseCover({
 }
 
 export function DifficultyBadge({ level }: { level: number }) {
-  const colors = ['bg-emerald-500', 'bg-sky-500', 'bg-indigo-500', 'bg-amber-500', 'bg-rose-500'];
   return (
     <Badge tone="muted">
-      <span className={clsx('mr-1 inline-block h-1.5 w-1.5 rounded-full', colors[Math.min(level, 5) - 1])} />
+      <span className="mr-1.5 inline-flex items-center gap-0.5" aria-hidden>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <span key={n} className={clsx('h-1.5 w-1.5 rounded-full', n <= Math.min(level, 5) ? 'bg-primary' : 'bg-muted')} />
+        ))}
+      </span>
       L{level}
     </Badge>
   );

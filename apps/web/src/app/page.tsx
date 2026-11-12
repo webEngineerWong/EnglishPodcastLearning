@@ -4,17 +4,17 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
 import { formatDuration, formatTime } from '@elp/player';
-import { BookOpen, Bookmark, FileUp, Headphones, Library, Play, Timer } from 'lucide-react';
 import { useDashboard } from '@/lib/hooks';
+import { Icon, type IconName } from '@elp/ui';
 import { PageHeader, CourseCover } from '@/components/shell';
 
-function StatCard({ label, value, hint, Icon }: { label: string; value: string; hint?: string; Icon?: React.ComponentType<{ size?: number; className?: string }> }) {
+function StatCard({ label, value, hint, icon }: { label: string; value: string; hint?: string; icon?: IconName }) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="text-xs text-muted-foreground">{label}</div>
-          {Icon && <Icon size={14} className="text-muted-foreground/70" />}
+          {icon && <Icon name={icon} size="sm" className="text-muted-foreground/70" />}
         </div>
         <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
         {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
@@ -32,10 +32,10 @@ function greeting(): string {
 }
 
 const QUICK_LINKS = [
-  { href: '/courses', label: '课程库', Icon: Library },
-  { href: '/vocabulary', label: '生词本', Icon: BookOpen },
-  { href: '/favorites', label: '收藏', Icon: Bookmark },
-  { href: '/import', label: '导入课程', Icon: FileUp }
+  { href: '/courses', label: '课程库', name: 'library' },
+  { href: '/vocabulary', label: '生词本', name: 'vocabulary' },
+  { href: '/favorites', label: '收藏', name: 'favorites' },
+  { href: '/import', label: '导入课程', name: 'import' }
 ] as const;
 
 export default function DashboardPage() {
@@ -51,7 +51,7 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title={`${greeting()} 👋`}
+        title={greeting()}
         subtitle={new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
       />
 
@@ -62,14 +62,14 @@ export default function DashboardPage() {
             <CourseCover url={null} title={c.title} className="h-20 w-20 shrink-0 rounded-lg text-xl" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                <Headphones size={13} />
+                <Icon name="audio" size="sm" />
                 {t('continueLearning')}
               </div>
               <div className="mt-0.5 truncate text-base font-semibold">{c.title}</div>
               <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="truncate">{c.audioName ?? ''}</span>
                 <span className="flex shrink-0 items-center gap-1">
-                  <Timer size={12} />
+                  <Icon name="timer" size={12} />
                   {formatTime(c.positionMs)}
                 </span>
                 <span className="hidden truncate sm:inline">{new Date(c.lastLearnedAt).toLocaleString()}</span>
@@ -80,7 +80,7 @@ export default function DashboardPage() {
               onClick={() => router.push(`/courses/${c.courseId}?resume=${c.positionMs}`)}
               aria-label={t('continueLearning')}
             >
-              <Play size={14} fill="currentColor" />
+              <Icon name="play" size="sm" fill="currentColor" />
               继续学习
             </Button>
           </CardContent>
@@ -89,24 +89,24 @@ export default function DashboardPage() {
 
       {/* 统计卡 */}
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label={t('todayMs')} value={formatDuration(data.todayMs)} Icon={Timer} />
-        <StatCard label={t('totalMs')} value={formatDuration(data.totalMs)} Icon={Headphones} />
+        <StatCard label={t('todayMs')} value={formatDuration(data.todayMs)} icon="timer" />
+        <StatCard label={t('totalMs')} value={formatDuration(data.totalMs)} icon="audio" />
         <StatCard label={t('streakDays')} value={`${data.streakDays} ${t('days')}`} />
-        <StatCard label={t('courses')} value={String(data.courseCount)} hint={`${t('completedCount')} ${data.completedCount}`} Icon={Library} />
-        <StatCard label={t('vocabularyCount')} value={String(data.vocabularyCount)} Icon={BookOpen} />
-        <StatCard label={t('favoriteCourses')} value={String(data.favoriteCourseCount)} Icon={Bookmark} />
+        <StatCard label={t('courses')} value={String(data.courseCount)} hint={`${t('completedCount')} ${data.completedCount}`} icon="library" />
+        <StatCard label={t('vocabularyCount')} value={String(data.vocabularyCount)} icon="vocabulary" />
+        <StatCard label={t('favoriteCourses')} value={String(data.favoriteCourseCount)} icon="favorites" />
       </div>
 
       {/* 快速入口 */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {QUICK_LINKS.map(({ href, label, Icon }) => (
+        {QUICK_LINKS.map(({ href, label, name }) => (
           <Link
             key={href}
             href={href}
             className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3.5 py-3 text-sm shadow-[var(--shadow-sm)] transition-colors hover:border-primary/40 hover:bg-accent"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <Icon size={16} />
+              <Icon name={name} size="sm" />
             </span>
             {label}
           </Link>
@@ -120,7 +120,8 @@ export default function DashboardPage() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">{t('recentCourses')}</h2>
               <Link href="/courses" className="flex items-center gap-1 text-xs text-primary hover:underline">
-                {t('courses')} →
+                {t('courses')}
+                <Icon name="arrowRight" size="sm" />
               </Link>
             </div>
             {data.recentCourses.length === 0 ? (
@@ -160,7 +161,7 @@ export default function DashboardPage() {
                   <div key={s.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
-                        <Headphones size={14} />
+                        <Icon name="audio" size="sm" />
                       </span>
                       <div className="min-w-0">
                         <div className="truncate font-medium">{s.courseTitle ?? '—'}</div>
@@ -182,7 +183,8 @@ export default function DashboardPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">{t('recentImports')}</h2>
             <Link href="/import" className="flex items-center gap-1 text-xs text-primary hover:underline">
-              {t('importCenter')} →
+              {t('importCenter')}
+                  <Icon name="arrowRight" size="sm" />
             </Link>
           </div>
           {data.recentImports.length === 0 ? (

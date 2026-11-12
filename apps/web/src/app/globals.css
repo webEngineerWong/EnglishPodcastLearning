@@ -1,46 +1,9 @@
+/* 共享 Design Tokens（唯一来源：packages/ui/src/styles/tokens.css） */
+@import '../../../packages/ui/src/styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  --background: 0 0% 100%;
-  --foreground: 224 20% 12%;
-  --card: 0 0% 100%;
-  --card-foreground: 224 20% 12%;
-  --primary: 238 70% 55%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 14% 94%;
-  --secondary-foreground: 224 20% 12%;
-  --muted: 220 14% 95%;
-  --muted-foreground: 224 10% 45%;
-  --accent: 238 80% 95%;
-  --accent-foreground: 238 70% 40%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 13% 90%;
-  --input: 220 13% 88%;
-  --ring: 238 70% 55%;
-}
-
-.dark {
-  --background: 226 24% 8%;
-  --foreground: 220 20% 92%;
-  --card: 226 22% 11%;
-  --card-foreground: 220 20% 92%;
-  --primary: 238 85% 68%;
-  --primary-foreground: 226 40% 10%;
-  --secondary: 226 18% 16%;
-  --secondary-foreground: 220 20% 92%;
-  --muted: 226 18% 16%;
-  --muted-foreground: 220 10% 60%;
-  --accent: 238 40% 22%;
-  --accent-foreground: 238 90% 80%;
-  --destructive: 0 62% 45%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 226 16% 20%;
-  --input: 226 16% 22%;
-  --ring: 238 85% 68%;
-}
 
 html {
   color-scheme: light;
@@ -50,9 +13,13 @@ html.dark {
 }
 
 body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.22);
 }
 
 ::-webkit-scrollbar {
@@ -60,37 +27,12 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 4px;
+  background: hsl(var(--border));
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
-/* ===== Design Tokens（三端统一规范，详见 docs/UI_AUDIT.md） ===== */
-:root {
-  --radius: 12px;
-  --success: 142 71% 45%;
-  --success-foreground: 0 0% 100%;
-  --warning: 38 92% 50%;
-  --warning-foreground: 26 83% 14%;
-  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
-  --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.08);
-  --shadow-lg: 0 12px 32px -8px rgb(15 23 42 / 0.14);
-  font-family: ui-sans-serif, -apple-system, 'SF Pro Text', 'PingFang SC', 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans SC', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-.dark {
-  --success: 142 69% 45%;
-  --success-foreground: 0 0% 100%;
-  --warning: 38 92% 55%;
-  --warning-foreground: 26 83% 12%;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.35);
-  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.5);
-}
-::selection { background: hsl(var(--primary) / 0.22); }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; }
-::-webkit-scrollbar-track { background: transparent; }

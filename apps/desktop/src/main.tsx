@@ -6,8 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, Tabs, type DisplayMode } from '@elp/ui';
-import { House, Library, FileUp, BookOpen, Bookmark, Moon, Sun, Headphones, Inbox, Search, Plus, FileText, Play, ImagePlus } from 'lucide-react';
+import { I18nProvider, ThemeProvider, ToastProvider, useI18n, useToast, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Icon, Spinner, Input, Select, Modal, Tabs, Tooltip, type DisplayMode } from '@elp/ui';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
 import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
@@ -21,7 +20,9 @@ function App() {
     <QueryClientProvider client={QueryCtx}>
       <ThemeProvider>
         <I18nProvider>
-          <DesktopApp />
+          <ToastProvider>
+            <DesktopApp />
+          </ToastProvider>
         </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>
@@ -39,7 +40,7 @@ type Route =
 function toast(msg: string, ok = false) {
   const el = document.createElement('div');
   el.textContent = msg;
-  el.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm shadow-lg ' + (ok ? 'bg-emerald-600 text-white' : 'bg-foreground text-background');
+  el.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-success/40 bg-success px-4 py-2 text-sm text-success-foreground shadow-lg ' + (ok ? '' : '!border-destructive/40 !bg-destructive !text-destructive-foreground');
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2400);
 }
@@ -60,11 +61,11 @@ function useInvalidate() {
 
 // 课程封面：有 coverUrl 用图，否则品牌渐变 + 首字（与 Web 一致）
 function CourseCover({ url, title, className }: { url?: string | null; title: string; className?: string }) {
-  const initial = title.trim().charAt(0).toUpperCase() || '🎧';
+  const initial = title.trim().charAt(0).toUpperCase();
   return url ? (
     <img src={url} alt="" className={'shrink-0 object-cover ' + (className ?? '')} />
   ) : (
-    <div className={'flex shrink-0 select-none items-center justify-center bg-gradient-to-br from-indigo-500 to-indigo-700 font-semibold text-white ' + (className ?? '')} aria-hidden>
+    <div className={'flex shrink-0 select-none items-center justify-center bg-primary font-semibold text-primary-foreground ' + (className ?? '')} aria-hidden>
       {initial}
     </div>
   );
@@ -77,11 +78,11 @@ function DesktopApp() {
   const { resolved, setMode } = useThemeCtl();
   const [route, setRoute] = useState<Route>({ page: 'dashboard' });
   const nav = [
-    { page: 'dashboard' as const, Icon: House, label: t('dashboard') },
-    { page: 'courses' as const, Icon: Library, label: t('courses') },
-    { page: 'import' as const, Icon: FileUp, label: t('importCenter') },
-    { page: 'vocabulary' as const, Icon: BookOpen, label: t('vocabulary') },
-    { page: 'favorites' as const, Icon: Bookmark, label: t('favorites') }
+    { page: 'dashboard' as const, name: 'dashboard' as const, label: t('dashboard') },
+    { page: 'courses' as const, name: 'library' as const, label: t('courses') },
+    { page: 'import' as const, name: 'import' as const, label: t('importCenter') },
+    { page: 'vocabulary' as const, name: 'vocabulary' as const, label: t('vocabulary') },
+    { page: 'favorites' as const, name: 'favorites' as const, label: t('favorites') }
   ];
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -94,7 +95,7 @@ function DesktopApp() {
               className={'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm ' + (route.page === n.page ? 'bg-primary/12 font-medium text-primary' : 'text-muted-foreground hover:bg-muted')}
               onClick={() => setRoute({ page: n.page } as Route)}
             >
-              <n.Icon size={16} className="shrink-0" />
+              <Icon name={n.name} size="sm" className="shrink-0" />
               {n.label}
             </button>
           ))}
@@ -102,7 +103,7 @@ function DesktopApp() {
         <div className="flex items-center justify-between px-3 pb-4 text-[10px] text-muted-foreground">
           <span>Electron · macOS</span>
           <button className="rounded px-1 hover:bg-accent" aria-label="theme" onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
-            {resolved === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            {resolved === 'dark' ? <Icon name="sun" size="sm" /> : <Icon name="moon" size="sm" />}
           </button>
         </div>
       </aside>
@@ -162,7 +163,7 @@ function Dash({ onOpenCourse, onOpenImport }: { onOpenCourse: (id: string) => vo
                 {data.continueLearning.audioName ?? ''} · 上次 {formatTime(data.continueLearning.positionMs)} · {new Date(data.continueLearning.lastLearnedAt).toLocaleString()}
               </div>
             </div>
-            <Button onClick={() => onOpenCourse(data.continueLearning!.courseId)}><Play size={14} fill="currentColor" className="mr-1" />继续</Button>
+            <Button onClick={() => onOpenCourse(data.continueLearning!.courseId)}><Icon name="play" size="sm" fill="currentColor" className="mr-1" />继续</Button>
           </CardContent>
         </Card>
       )}
@@ -272,13 +273,13 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t('courses')}</h1>
-        <Button onClick={() => setShowCreate(true)}><Plus size={15} />{t('createCourse')}</Button>
+        <Button onClick={() => setShowCreate(true)}><Icon name="plus" size="sm" />{t('createCourse')}</Button>
       </div>
       <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="mb-4 max-w-sm" />
       {!data ? (
         <Spinner />
       ) : data.items.length === 0 ? (
-        <EmptyState title={t('empty')} hint="去导入中心上传资料" />
+        <EmptyState icon={<Icon name="inbox" size={32} />} title={t('empty')} hint="去导入中心上传资料" />
       ) : (
         <div className="space-y-2">
           {data.items.map((c) => (
@@ -289,15 +290,15 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenCourse(c.id)}>
                     <div className="truncate font-medium group-hover:text-primary">{c.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      {c.categoryName ? c.categoryName + ' · ' : ''}{c.audioCount} 节 · L{c.difficulty}
+                      <span className="inline-flex items-center gap-1">{c.categoryName ? c.categoryName + ' · ' : ''}<Icon name="audio" size={11} />{c.audioCount} · L{c.difficulty}</span>
                     </div>
                   </button>
                   <button
                     className={c.favorite ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary'}
-                    title={t('favorites')}
+                    aria-label={t('favorites')}
                     onClick={() => toggleFav.mutate(c)}
                   >
-                    <Bookmark size={16} className={c.favorite ? 'fill-current' : ''} />
+                    <Icon name="favorites" size="md" className={c.favorite ? 'fill-current' : ''} />
                   </button>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
@@ -477,7 +478,8 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
     <div className="mx-auto max-w-3xl pb-10">
       <div className="mb-3 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack}>
-          ← {t('courses')}
+          <Icon name="arrowLeft" size="sm" />
+          {t('courses')}
         </Button>
         {/* 双语模式/自动滚动仅在实时字幕标签下显示（与 Web 端对齐） */}
         {tab === 'subtitles' && (
@@ -496,7 +498,8 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
               ))}
             </div>
             <Button variant={autoScrollOn ? 'active' : 'outline'} size="sm" onClick={() => setAutoScrollOn(!autoScrollOn)}>
-              ↕ {t('autoScroll')}
+              <Icon name="arrowDown" size="sm" />
+              {t('autoScroll')}
             </Button>
           </div>
         )}
@@ -504,14 +507,15 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
       <h1 className="mb-2 text-xl font-semibold">{course.title}</h1>
       <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground">
         <button
-          className={course.favorite ? 'text-amber-400' : 'hover:text-amber-400'}
+          className={course.favorite ? 'text-warning' : 'hover:text-warning'}
           onClick={() => void api.setCourseFavorite(id, !course.favorite).then(() => invalidate(['course', 'courses', 'favorites']))}
         >
-          {course.favorite ? '已收藏' : '收藏课程'}
+          <span className="inline-flex items-center gap-1"><Icon name="favorites" size={12} className={course.favorite ? 'fill-current' : ''} />{course.favorite ? '已收藏' : '收藏课程'}</span>
         </button>
-        {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 单句循环（L 键）</Badge>}
-        {audio && <span className="flex items-center gap-1"><Headphones size={12} />{audio.originalName}</span>}
-        <button className="text-primary hover:underline" onClick={() => coverRef.current?.click()}>
+        {state.loopMode === 'paragraph' && <Badge tone="warning"><Icon name="repeatOne" size={11} className="mr-1" />单句循环（L 键）</Badge>}
+        {audio && <span className="flex items-center gap-1"><Icon name="audio" size={12} />{audio.originalName}</span>}
+        <button className="inline-flex items-center gap-1 text-primary hover:underline" onClick={() => coverRef.current?.click()}>
+          <Icon name="imagePlus" size={12} />
           设置封面
         </button>
         <input
@@ -569,10 +573,10 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
             renderParagraphActions={(p) => (
               <>
                 <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
-                  ☆
+                  <Icon name="star" size={13} />
                 </button>
                 <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
-                  🔤
+                  <Icon name="bookPlus" size={13} />
                 </button>
                 <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
                   ⧉
@@ -586,7 +590,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="space-y-5">
           {materials.map((m) => (
             <div key={m.id}>
-              {m.title && <div className="flex items-center gap-1 text-xs font-semibold text-muted-foreground"><FileText size={12} />{m.title}</div>}
+              {m.title && <div className="flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Icon name="pdf" size={12} />{m.title}</div>}
               <MaterialReader
                 paragraphs={m.paragraphs}
                 activeParagraphId={materialActiveIds[m.id] ?? null}
@@ -617,7 +621,7 @@ function NotesPanel({ courseId, notes, docs }: { courseId: string; notes?: strin
     if (!file) return;
     try {
       await api.uploadDocument(courseId, file, { role: 'notes' });
-      toast(`✅ ${file.name}`, true);
+      toast(file.name, true);
       invalidate(['course', 'courses']);
     } catch (e) {
       toast(e instanceof Error ? e.message : t('uploadFailed'));
@@ -666,20 +670,24 @@ function NotesPanel({ courseId, notes, docs }: { courseId: string; notes?: strin
                 rel="noreferrer"
                 className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent"
               >
-                ↗ {t('openInNewTab')}
+                <Icon name="arrowRight" size="sm" />
+                {t('openInNewTab')}
               </a>
               <a
                 href={src ? `${src}?download=1` : undefined}
                 className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent"
               >
-                ⬇ {t('download')}
+                <Icon name="arrowDown" size="sm" />
+                {t('download')}
               </a>
               <Button size="sm" variant="outline" onClick={() => uploadRef.current?.click()}>
-                📤 {t('uploadNotes')}
+                <Icon name="import" size="sm" />
+                {t('uploadNotes')}
               </Button>
               {doc && (
                 <Button size="sm" variant="destructive" onClick={() => void remove(doc)}>
-                  🗑 {t('delete')}
+                  <Icon name="trash" size="sm" />
+                {t('delete')}
                 </Button>
               )}
               <input
@@ -783,7 +791,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
       <h1 className="mb-4 text-xl font-semibold">{t('importCenter')}</h1>
       <Card className="mb-4">
         <CardContent className="py-8 text-center">
-          <div className="mb-2 flex justify-center"><Inbox size={32} className="text-primary" /></div>
+          <div className="mb-2 flex justify-center"><Icon name="inbox" size={32} className="text-primary" /></div>
           <div className="text-sm">{t('importHint')}</div>
           <div className="mt-1 text-xs text-muted-foreground">同名的 PDF/MP3/双 SRT 自动匹配并合成双语课程（SRT 提供真实时间戳）</div>
           <Button className="mt-4" onClick={() => void pickAndImport()} disabled={busy}>
@@ -813,7 +821,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
               }}
               title="分次上传的 MP3/字幕/文本会按集数自动凑组"
             >
-              <Search size={13} className="mr-1 inline" /> 重新匹配
+              <Icon name="scanSearch" size="sm" className="mr-1 inline" /> 重新匹配
             </Button>
           </div>
           {jobsLoading ? (
@@ -837,7 +845,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
                     <div className="truncate font-medium">{j.name ?? j.id}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {new Date(j.createdAt).toLocaleString()} · {j.files.length} 个文件
-                      {j.failedFiles > 0 && <span className="text-red-500"> · {j.failedFiles} 失败</span>}
+                      {j.failedFiles > 0 && <span className="text-destructive"> · {j.failedFiles} 失败</span>}
                     </div>
                   </div>
                   <Badge tone={j.status === 'COMPLETED' ? 'success' : j.status === 'FAILED' ? 'danger' : j.status === 'REVIEWING' ? 'warning' : 'default'}>
@@ -850,13 +858,13 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
           {jobs && jobs.total > 20 && (
             <div className="mt-3 flex items-center justify-center gap-3 text-sm">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                ←
+                <Icon name="chevronLeft" size="sm" />
               </Button>
               <span className="text-xs text-muted-foreground">
                 {page} / {Math.ceil(jobs.total / 20)}
               </span>
               <Button variant="outline" size="sm" disabled={page >= Math.ceil(jobs.total / 20)} onClick={() => setPage(page + 1)}>
-                →
+                <Icon name="chevronRight" size="sm" />
               </Button>
             </div>
           )}
@@ -872,6 +880,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
   const { t } = useI18n();
   const api = useApiClient();
   const invalidate = useInvalidate();
+  const { show: showToast } = useToast();
   const [fileId, setFileId] = useState<string | null>(null);
   const [notesPreviewId, setNotesPreviewId] = useState<string | null>(null);
   const [paragraphs, setParagraphs] = useState<DraftParagraph[]>([]);
@@ -888,7 +897,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
     setSelected(new Set());
   };
 
-  /** 点击文件：学习笔记 → 预览说明；对照文本/字幕 → 段落草稿 */
+  /** 点击文件：学习笔记进预览说明；对照文本/字幕进段落草稿 */
   const selectFile = (f: ImportJobDto['files'][number]) => {
     if (f.kind === 'pdf' && f.docRole === 'notes') {
       setNotesPreviewId(f.id);
@@ -915,7 +924,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
         await loadDraft(f.id);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : '操作失败');
+      showToast(e instanceof Error ? e.message : '操作失败', 'error');
     }
   };
 
@@ -924,7 +933,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
       await fn();
       if (fileId) await loadDraft(fileId);
     } catch (e) {
-      alert(e instanceof Error ? e.message : '操作失败');
+      showToast(e instanceof Error ? e.message : '操作失败', 'error');
     }
   };
 
@@ -933,10 +942,10 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
     onSuccess: (r) => {
       const cid = (r as unknown as { courseId?: string }).courseId;
       invalidate(['courses', 'dashboard', 'importJobs']);
-      toast('已发布课程', true);
+      showToast('已发布课程');
       if (cid) onOpenCourse(cid);
     },
-    onError: (e) => alert(e instanceof Error ? e.message : '发布失败')
+    onError: (e) => showToast(e instanceof Error ? e.message : '发布失败', 'error')
   });
 
   const retry = useMutation({
@@ -955,8 +964,8 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
           <span className="text-sm font-semibold">{job.name ?? job.id}</span>
           <div className="flex items-center gap-2">
             <Badge tone={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning'}>{job.status}</Badge>
-            <Button size="sm" variant="ghost" onClick={onClose} title="收起">
-              ✕
+            <Button size="sm" variant="ghost" onClick={onClose} aria-label="收起">
+              <Icon name="close" size="sm" />
             </Button>
           </div>
         </div>
@@ -977,7 +986,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
                 {f.kind === 'pdf' && (
                   <>
                     <Badge tone={f.docRole === 'notes' ? 'warning' : 'muted'}>
-                      {f.docRole === 'notes' ? `📝 ${t('notes')}` : t('roleSource')}
+                      {f.docRole === 'notes' ? (<span className="inline-flex items-center gap-1"><Icon name="pencil" size={11} />{t('notes')}</span>) : t('roleSource')}
                     </Badge>
                     <Select
                       className="h-7 w-28 text-xs"
@@ -1006,7 +1015,7 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
         {notesPreviewId && (
           <div className="mt-4 border-t border-border pt-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge tone="warning">📝 {t('notes')}</Badge>
+              <Badge tone="warning"><Icon name="pencil" size={11} className="mr-1" />{t('notes')}</Badge>
               <span className="text-sm text-muted-foreground">{t('notesPdfHint')}</span>
             </div>
             <iframe
@@ -1065,15 +1074,15 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
                           <div className="text-sm">{p.textEn ?? <span className="italic text-muted-foreground">（无英文）</span>}</div>
                           <div className="text-sm text-muted-foreground">{p.textZh}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                            {typeof p.startTimeMs === 'number' && <span>⏱ {Math.floor(p.startTimeMs / 1000)}s</span>}
-                            {lowConf && <span className="text-amber-600">置信度 {Math.round(p.confidence * 100)}%</span>}
+                            {typeof p.startTimeMs === 'number' && <span className="inline-flex items-center gap-1"><Icon name="timer" size={10} />{Math.floor(p.startTimeMs / 1000)}s</span>}
+                            {lowConf && <span className="text-warning">置信度 {Math.round(p.confidence * 100)}%</span>}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-1 text-xs">
-                          <button className="rounded px-1 hover:bg-accent" title={t('edit')} onClick={() => { setEditing(i); setEditEn(p.textEn ?? ''); setEditZh(p.textZh ?? ''); }}>✎</button>
-                          <button className="rounded px-1 hover:bg-accent" title={t('moveUp')} onClick={() => op(() => api.reorderFileParagraph(fileId, i, 'up'))}>↑</button>
-                          <button className="rounded px-1 hover:bg-accent" title={t('moveDown')} onClick={() => op(() => api.reorderFileParagraph(fileId, i, 'down'))}>↓</button>
-                          <button className="rounded px-1 text-red-500 hover:bg-accent" title={t('delete')} onClick={() => op(() => api.deleteFileParagraph(fileId, i))}>🗑</button>
+                          <button className="rounded px-1 hover:bg-accent" aria-label={t('edit')} onClick={() => { setEditing(i); setEditEn(p.textEn ?? ''); setEditZh(p.textZh ?? ''); }}><Icon name="pencil" size={12} /></button>
+                          <button className="rounded px-1 hover:bg-accent" aria-label={t('moveUp')} onClick={() => op(() => api.reorderFileParagraph(fileId, i, 'up'))}><Icon name="arrowUp" size={12} /></button>
+                          <button className="rounded px-1 hover:bg-accent" aria-label={t('moveDown')} onClick={() => op(() => api.reorderFileParagraph(fileId, i, 'down'))}><Icon name="arrowDown" size={12} /></button>
+                          <button className="rounded px-1 text-destructive hover:bg-accent" aria-label={t('delete')} onClick={() => op(() => api.deleteFileParagraph(fileId, i))}><Icon name="trash" size={12} /></button>
                         </div>
                       </div>
                     )}
@@ -1099,7 +1108,8 @@ function JobPanel({ job, onOpenCourse, onClose }: { job: ImportJobDto; onOpenCou
                 <Input placeholder="课程标题（可选）" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
               <Button disabled={publish.isPending} onClick={() => publish.mutate(title ? { title } : undefined)}>
-                ✓ {t('confirm')} & {t('publish')}
+                <Icon name="check" size="sm" />
+              {t('confirm')} & {t('publish')}
               </Button>
             </div>
           </div>
@@ -1125,7 +1135,7 @@ function VocabularyPage() {
       {isLoading ? (
         <Spinner />
       ) : !data || data.length === 0 ? (
-        <EmptyState title={t('empty')} hint="在课程详情页点击段落旁的 🔤 加入生词" />
+        <EmptyState title={t('empty')} hint="在课程详情页点段落的加入生词按钮" />
       ) : (
         <div className="space-y-2">
           {data.map((v) => (
@@ -1153,12 +1163,13 @@ function VocabularyPage() {
                       invalidate(['vocabulary', 'dashboard']);
                     }}
                   >
-                    状态→
+                    状态
+                    <Icon name="arrowRight" size={12} />
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-red-500"
+                    className="text-destructive"
                     onClick={async () => {
                       if (!confirm(t('deleteConfirm'))) return;
                       await api.removeVocabulary(v.id);
@@ -1213,7 +1224,7 @@ function FavoritesPage() {
               <CardContent className="flex items-start justify-between gap-3 p-4">
                 <div className="min-w-0">
                   {f.type === 'COURSE' ? (
-                    <div className="flex items-center gap-1.5 text-sm font-medium"><Bookmark size={13} className="text-primary" />{f.courseTitle ?? '课程'}</div>
+                    <div className="flex items-center gap-1.5 text-sm font-medium"><Icon name="favorites" size={13} className="text-primary" />{f.courseTitle ?? '课程'}</div>
                   ) : (
                     <div className="text-sm">
                       <div className="line-clamp-2">{f.excerptEn}</div>
@@ -1225,13 +1236,13 @@ function FavoritesPage() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="shrink-0 text-red-500"
+                  className="shrink-0 text-destructive"
                   onClick={async () => {
                     await api.removeFavorite(f.id);
                     invalidate(['favorites', 'courses']);
                   }}
                 >
-                  ✕
+                  <Icon name="close" size="sm" />
                 </Button>
               </CardContent>
             </Card>

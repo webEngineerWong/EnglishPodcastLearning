@@ -1,6 +1,6 @@
-/** 完整音频播放器 UI —— Web 与 Electron 共用 */
+/** 完整音频播放器 UI —— Web 与 Electron 共用（图标走 @elp/icons 封装） */
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Repeat, Repeat1, Volume2, VolumeX, X } from 'lucide-react';
+import { Icon } from '@elp/icons';
 import { AudioEngine, type PlayerState } from './engine';
 import { RATES } from './react';
 import { formatTime } from './format';
@@ -19,7 +19,7 @@ export interface AudioPlayerProps {
 }
 
 function SpinnerDot() {
-  return <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
+  return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />;
 }
 
 export function AudioPlayer({ engine, state, title, onPrev, onNext, onToggleParagraphLoop, compact, disabled }: AudioPlayerProps) {
@@ -70,9 +70,12 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
     }
   };
 
+  const ctrlBtn =
+    'flex h-8 w-8 items-center justify-center rounded-md text-foreground/80 transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted hover:text-foreground disabled:opacity-40';
+
   return (
-    <div className={`select-none rounded-lg border border-border bg-card p-3 ${compact ? '' : 'md:p-4'}`}>
-      {/* 进度条 */}
+    <div className={`select-none rounded-xl border border-border bg-card p-3 ${compact ? '' : 'md:p-4'}`}>
+      {/* 进度条：轨道 muted、已播放 primary、A-B 区间 warning、手柄 foreground+ring */}
       <div
         ref={barRef}
         className="group relative mb-2 h-2 w-full cursor-pointer touch-none rounded-full bg-muted"
@@ -86,13 +89,10 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(state.currentTimeMs)}
       >
-        <div
-          className="pointer-events-none absolute inset-y-0 rounded-full bg-primary"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="pointer-events-none absolute inset-y-0 rounded-full bg-primary" style={{ width: `${pct}%` }} />
         {abActive && state.loopRange && duration > 0 && (
           <div
-            className="pointer-events-none absolute inset-y-0 rounded-full bg-amber-400/70"
+            className="pointer-events-none absolute inset-y-0 rounded-full bg-warning/60"
             style={{
               left: `${(state.loopRange.startMs / duration) * 100}%`,
               width: `${((state.loopRange.endMs - state.loopRange.startMs) / duration) * 100}%`
@@ -100,33 +100,34 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
           />
         )}
         <div
-          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-primary opacity-0 shadow transition-opacity group-hover:opacity-100"
-          style={{ left: `calc(${pct}% - 6px)` }}
+          className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-foreground opacity-0 shadow ring-2 ring-background transition-opacity group-hover:opacity-100"
+          style={{ left: `calc(${pct}% - 7px)` }}
         />
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <span className="w-11 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(state.currentTimeMs)}</span>
-          <button className="rounded px-1.5 py-1 text-sm hover:bg-accent disabled:opacity-40" onClick={() => engine.skip(-5)} disabled={disabled} title="快退 5s">
-            <Rewind size={16} className="shrink-0" />
+          <button className={ctrlBtn} onClick={() => engine.skip(-5)} disabled={disabled} aria-label="快退 5 秒">
+            <Icon name="rewind" size="md" />
           </button>
-          <button className="rounded px-1.5 py-1 text-sm hover:bg-accent disabled:opacity-40" onClick={() => engine.skip(5)} disabled={disabled} title="快进 5s">
-            <FastForward size={16} className="shrink-0" />
+          <button className={ctrlBtn} onClick={() => engine.skip(5)} disabled={disabled} aria-label="快进 5 秒">
+            <Icon name="fastForward" size="md" />
           </button>
-          <button className="rounded px-1.5 py-1 hover:bg-accent disabled:opacity-40" onClick={onPrev} disabled={!onPrev || disabled} title="上一篇">
-            <SkipBack size={16} className="shrink-0" />
+          <button className={ctrlBtn} onClick={onPrev} disabled={!onPrev || disabled} aria-label="上一集">
+            <Icon name="skipBack" size="md" />
           </button>
+          {/* 主播放按钮：44px 圆形实心，页面最突出元素 */}
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow hover:opacity-90 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-primary-hover active:scale-[0.98] motion-reduce:active:scale-none disabled:opacity-40"
             onClick={() => engine.toggle()}
             disabled={disabled}
-            title={state.playing ? '暂停' : '播放'}
+            aria-label={state.playing ? '暂停' : '播放'}
           >
-            {state.loading ? <SpinnerDot /> : state.playing ? <Pause size={16} fill="currentColor" className="shrink-0" /> : <Play size={16} fill="currentColor" className="shrink-0 translate-x-[1px]" />}
+            {state.loading ? <SpinnerDot /> : <Icon name={state.playing ? 'pause' : 'play'} size={26} fill="currentColor" />}
           </button>
-          <button className="rounded px-1.5 py-1 hover:bg-accent disabled:opacity-40" onClick={onNext} disabled={!onNext || disabled} title="下一篇">
-            <SkipForward size={16} className="shrink-0" />
+          <button className={ctrlBtn} onClick={onNext} disabled={!onNext || disabled} aria-label="下一集">
+            <Icon name="skipForward" size="md" />
           </button>
           <span className="w-11 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(duration)}</span>
         </div>
@@ -134,81 +135,83 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
         {title && !compact && <div className="mx-2 hidden min-w-0 flex-1 truncate text-center text-sm text-muted-foreground md:block">{title}</div>}
 
         <div className="flex shrink-0 items-center gap-1">
-          {/* 循环 */}
+          {/* 单篇循环 */}
           <button
-            className={`rounded px-2 py-1 text-xs hover:bg-accent ${state.loopMode === 'track' ? 'bg-primary/15 text-primary' : ''}`}
+            className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted disabled:opacity-40 ${
+              state.loopMode === 'track' ? 'bg-primary/15 text-primary' : 'text-foreground/80'
+            }`}
             onClick={() => engine.setLoopMode(state.loopMode === 'track' ? 'off' : 'track')}
             disabled={disabled}
-            title="单篇循环"
+            aria-label="单篇循环"
           >
-            <Repeat size={14} className="shrink-0" />
+            <Icon name="repeat" size="sm" />
           </button>
           {onToggleParagraphLoop && (
             <button
-              className={`rounded px-2 py-1 text-xs hover:bg-accent ${paragraphLoopActive ? 'bg-primary/15 text-primary' : ''}`}
+              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted disabled:opacity-40 ${
+                paragraphLoopActive ? 'bg-primary/15 text-primary' : 'text-foreground/80'
+              }`}
               onClick={onToggleParagraphLoop}
               disabled={disabled}
-              title="单句循环（L）"
+              aria-label="单句循环（L）"
             >
-              <Repeat1 size={14} className="shrink-0" />
+              <Icon name="repeatOne" size="sm" />
             </button>
           )}
+          {/* A-B 循环：Repeat 图标 + A-B 文字标记 */}
           <button
-            className={`rounded px-2 py-1 text-xs hover:bg-accent ${state.loopMode === 'ab' ? 'bg-amber-500/20 text-amber-600' : ''}`}
+            className={`flex h-8 items-center justify-center gap-1 rounded-md px-2 text-xs transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted disabled:opacity-40 ${
+              state.loopMode === 'ab' ? 'bg-warning/20 text-warning' : 'text-foreground/80'
+            }`}
             onClick={cycleLoopMode}
             disabled={disabled}
-            title="A-B 循环"
+            aria-label="A-B 循环"
           >
+            <Icon name="repeat" size="sm" />
             A-B
           </button>
           {state.loopMode === 'ab' && (
             <>
-              <button
-                className="rounded px-1.5 py-1 text-xs hover:bg-accent"
-                onClick={() => engine.markA()}
-                disabled={disabled}
-                title="把当前时间设为 A 点"
-              >
+              <button className={ctrlBtn} onClick={() => engine.markA()} disabled={disabled} aria-label="把当前时间设为 A 点">
                 A
               </button>
-              <button
-                className="rounded px-1.5 py-1 text-xs hover:bg-accent"
-                onClick={() => engine.markB()}
-                disabled={disabled}
-                title="把当前时间设为 B 点"
-              >
+              <button className={ctrlBtn} onClick={() => engine.markB()} disabled={disabled} aria-label="把当前时间设为 B 点">
                 B
               </button>
-              <button
-                className="rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent"
-                onClick={() => engine.setLoopMode('off')}
-                disabled={disabled}
-                title="清除循环"
-              >
-                <X size={12} />
+              <button className={ctrlBtn} onClick={() => engine.setLoopMode('off')} disabled={disabled} aria-label="清除循环">
+                <Icon name="close" size="sm" />
               </button>
             </>
           )}
 
-          {/* 倍速 */}
-          <select
-            className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
-            value={RATES.find((r) => Math.abs(r - state.rate) < 1e-6) ?? state.rate}
-            onChange={(e) => engine.setRate(Number(e.target.value))}
-            disabled={disabled}
-            title="倍速"
-          >
-            {RATES.map((r) => (
-              <option key={r} value={r}>
-                {r}x
-              </option>
-            ))}
-          </select>
+          {/* 倍速：Gauge 图标 + select */}
+          <div className="flex h-8 items-center gap-0.5 rounded-md border border-input bg-card px-1.5">
+            <Icon name="gauge" size="sm" className="text-muted-foreground" />
+            <select
+              className="h-7 bg-transparent text-xs outline-none"
+              value={RATES.find((r) => Math.abs(r - state.rate) < 1e-6) ?? state.rate}
+              onChange={(e) => engine.setRate(Number(e.target.value))}
+              disabled={disabled}
+              aria-label="倍速"
+            >
+              {RATES.map((r) => (
+                <option key={r} value={r}>
+                  {r}x
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* 音量 */}
           <div className="hidden items-center gap-1 md:flex">
-            <button className="rounded px-1.5 py-1 text-sm hover:bg-accent" onClick={() => engine.toggleMute()} title="静音">
-              {state.muted || state.volume === 0 ? <VolumeX size={15} className="shrink-0" /> : <Volume2 size={15} className="shrink-0" />}
+            <button
+              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted ${
+                state.muted || state.volume === 0 ? 'text-primary' : 'text-foreground/80'
+              }`}
+              onClick={() => engine.toggleMute()}
+              aria-label={state.muted || state.volume === 0 ? '取消静音' : '静音'}
+            >
+              <Icon name={state.muted || state.volume === 0 ? 'volumeMute' : 'volume'} size="sm" />
             </button>
             <input
               type="range"
@@ -218,12 +221,17 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
               value={state.muted ? 0 : state.volume}
               onChange={(e) => engine.setVolume(Number(e.target.value))}
               className="w-20 accent-[hsl(var(--primary))]"
-              title="音量"
+              aria-label="音量"
             />
           </div>
         </div>
       </div>
-      {state.error && <div className="mt-2 text-xs text-red-500">{state.error}</div>}
+      {state.error && (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+          <Icon name="error" size={12} />
+          {state.error}
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@
  */
 import React, { memo, useEffect, useRef } from 'react';
 import clsx from 'clsx';
+import { Icon } from './icons';
 import type { TranscriptParagraphDto } from '@elp/types';
 import { formatTime } from '@elp/player';
 
@@ -58,8 +59,8 @@ export function BilingualReaderImpl({
             ref={active ? activeRef : undefined}
             className={clsx(
               'group rounded-md border px-3 py-2 transition-colors',
-              active ? 'border-primary/60 bg-primary/10' : 'border-transparent hover:border-border hover:bg-muted/40',
-              p.confidence < 0.5 && !active && 'border-l-2 border-l-amber-400'
+              active ? 'border-l-2 border-l-primary bg-accent/60' : 'border-l-2 border-l-transparent hover:bg-muted/50',
+              p.confidence < 0.5 && !active && 'border-l-warning'
             )}
             onClick={() => {
               if (!hasTime) onNoTimestamp?.(p);
@@ -95,7 +96,10 @@ export function BilingualReaderImpl({
               </div>
             </div>
             {p.confidence < 0.5 && (
-              <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">⚠ 低置信度（{Math.round(p.confidence * 100)}%）— 建议校对</div>
+              <div className="mt-1 flex items-center gap-1 text-[10px] text-warning">
+                <Icon name="alert" size={10} />
+                低置信度（{Math.round(p.confidence * 100)}%）
+              </div>
             )}
           </div>
         );

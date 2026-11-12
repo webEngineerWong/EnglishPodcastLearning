@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Input, Modal, Select, Spinner, Textarea, useI18n } from '@elp/ui';
-import { Bookmark, Headphones, Plus, Search } from 'lucide-react';
 import { useCategories, useCourses, useCreateCourse, useDeleteCourse, useToggleCourseFavorite } from '@/lib/hooks';
+import { Icon, Tooltip } from '@elp/ui';
 import { DifficultyBadge, CourseCover, PageHeader } from '@/components/shell';
 
 export default function CoursesPage() {
@@ -41,7 +41,7 @@ export default function CoursesPage() {
         subtitle={`${t('total')} ${data?.total ?? 0} ${t('items')}`}
         actions={
           <Button onClick={() => setShowCreate(true)}>
-            <Plus size={15} />
+            <Icon name="plus" size="sm" />
             {t('createCourse')}
           </Button>
         }
@@ -49,7 +49,7 @@ export default function CoursesPage() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         <div className="relative max-w-xs flex-1">
-          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Icon name="search" size="sm" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder={t('searchPlaceholder')}
             value={search}
@@ -69,7 +69,7 @@ export default function CoursesPage() {
           ))}
         </Select>
         <Button variant={favorite ? 'active' : 'outline'} onClick={() => setFavorite(!favorite)}>
-          <Bookmark size={14} className={favorite ? 'fill-current' : ''} />
+          <Icon name="favorites" size="sm" className={favorite ? 'fill-current' : ''} />
           {t('favorites')}
         </Button>
       </div>
@@ -97,13 +97,15 @@ export default function CoursesPage() {
       {data && data.total > 20 && (
         <div className="mt-6 flex items-center justify-center gap-3 text-sm">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            ← {t('prevPage')}
+            <Icon name="chevronLeft" size="sm" />
+            {t('prevPage')}
           </Button>
           <span className="text-muted-foreground">
             {page} / {Math.ceil(data.total / 20)}
           </span>
           <Button variant="outline" size="sm" disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(page + 1)}>
-            {t('nextPage')} →
+            {t('nextPage')}
+            <Icon name="chevronRight" size="sm" />
           </Button>
         </div>
       )}
@@ -169,20 +171,21 @@ function CourseCard({
             <h3 className="truncate font-medium group-hover:text-primary">{course.title}</h3>
             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{course.description ?? '—'}</p>
           </Link>
-          <button
-            className={course.favorite ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary'}
-            onClick={() => toggle.mutate()}
-            title={t('favorites')}
-            aria-label={t('favorites')}
-          >
-            <Bookmark size={17} className={course.favorite ? 'fill-current' : ''} />
-          </button>
+          <Tooltip label={t('favorites')}>
+            <button
+              className={course.favorite ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary'}
+              onClick={() => toggle.mutate()}
+              aria-label={t('favorites')}
+            >
+              <Icon name="favorites" size="md" className={course.favorite ? 'fill-current' : ''} />
+            </button>
+          </Tooltip>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <DifficultyBadge level={course.difficulty} />
           {course.categoryName && <Badge tone="muted">{course.categoryName}</Badge>}
           <Badge tone="muted">
-            <Headphones size={11} className="mr-1" />
+            <Icon name="audio" size={11} className="mr-1" />
             {course.audioCount}
           </Badge>
           {course.tags.slice(0, 3).map((tag) => (

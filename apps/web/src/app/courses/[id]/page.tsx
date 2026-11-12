@@ -2,8 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, Tabs, useI18n } from '@elp/ui';
-import { ImagePlus, Paperclip, Timer } from 'lucide-react';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, Tabs, Tooltip, useI18n, useToast } from '@elp/ui';
 import {
   AudioPlayer,
   formatTime,
@@ -154,7 +153,7 @@ export default function CourseDetailPage() {
   }, [materials, state.currentTimeMs]);
 
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
-  if (error || !course) return <EmptyState icon="⚠️" title={error ?? t('empty')} />;
+  if (error || !course) return <EmptyState icon={<Icon name="alert" size={28} />} title={error ?? t('empty')} />;
   if (!course) return null;
 
   const paragraphs = course.transcript?.paragraphs ?? [];
@@ -178,7 +177,8 @@ export default function CourseDetailPage() {
         actions={
           <>
             <Button variant="outline" onClick={() => router.push('/courses')}>
-              ← {t('courses')}
+              <Icon name="arrowLeft" size="sm" />
+              {t('courses')}
             </Button>
             <input
               ref={appendRef}
@@ -204,10 +204,12 @@ export default function CourseDetailPage() {
                 e.target.value = '';
               }}
             />
-            <Button variant="outline" onClick={() => appendRef.current?.click()}>
-              <Paperclip size={14} />
-              追加音频/文本
-            </Button>
+            <Tooltip label="追加音频/文本">
+              <Button variant="outline" aria-label="追加音频/文本" onClick={() => appendRef.current?.click()}>
+                <Icon name="paperclip" size="sm" />
+                追加音频/文本
+              </Button>
+            </Tooltip>
             <input
               ref={coverRef}
               type="file"
@@ -230,12 +232,14 @@ export default function CourseDetailPage() {
                 e.target.value = '';
               }}
             />
-            <Button variant="outline" onClick={() => coverRef.current?.click()}>
-              <ImagePlus size={14} />
-              设置封面
-            </Button>
+            <Tooltip label="设置封面">
+              <Button variant="outline" aria-label="设置封面" onClick={() => coverRef.current?.click()}>
+                <Icon name="imagePlus" size="sm" />
+                设置封面
+              </Button>
+            </Tooltip>
             <Button variant={showTiming ? 'active' : 'outline'} onClick={() => setShowTiming(!showTiming)}>
-              <Timer size={14} />
+              <Icon name="timer" size="sm" />
               {t('paragraphTime')}
             </Button>
           </>
@@ -293,9 +297,15 @@ export default function CourseDetailPage() {
             ))}
           </div>
           <Button variant={autoScroll ? 'active' : 'outline'} size="sm" onClick={() => setAutoScroll(!autoScroll)}>
-            ↕ {t('autoScroll')}
+            <Icon name="arrowDown" size="sm" />
+            {t('autoScroll')}
           </Button>
-          {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 {t('loopParagraph')}</Badge>}
+          {state.loopMode === 'paragraph' && (
+            <Badge tone="warning">
+              <Icon name="repeatOne" size={11} className="mr-1" />
+              {t('loopParagraph')}
+            </Badge>
+          )}
           {state.loopMode === 'ab' && <Badge tone="warning">A-B</Badge>}
         </div>
       )}
@@ -305,7 +315,7 @@ export default function CourseDetailPage() {
         <Card>
           <CardContent className="p-3 md:p-4">
             {paragraphs.length === 0 ? (
-              <EmptyState icon="📄" title={t('noTranscript')} />
+              <EmptyState icon={<Icon name="pdf" size={28} />} title={t('noTranscript')} />
             ) : (
               <BilingualReader
                 paragraphs={paragraphs}
@@ -327,7 +337,12 @@ export default function CourseDetailPage() {
           <CardContent className="space-y-5 p-3 md:p-4">
             {materials.map((m) => (
               <div key={m.id}>
-                {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+                {m.title && (
+                  <div className="mb-2 flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                    <Icon name="pdf" size={12} />
+                    {m.title}
+                  </div>
+                )}
                 <MaterialReader
                   paragraphs={m.paragraphs}
                   activeParagraphId={materialActiveIds[m.id] ?? null}
@@ -366,58 +381,57 @@ export default function CourseDetailPage() {
 /** 段落操作：收藏 / 加生词 */
 function ParagraphActions({ paragraph, courseId }: { paragraph: TranscriptParagraphDto; courseId: string }) {
   const { t } = useI18n();
+  const { show: showToast } = useToast();
   const [fav, setFav] = useState(false);
   return (
     <>
-      <button
-        className="rounded px-1 text-xs hover:bg-accent"
-        title={t('favoriteSentence')}
-        onClick={async (e) => {
-          e.stopPropagation();
-          await api.addParagraphFavorite(paragraph.id);
-          setFav(true);
-        }}
-      >
-        {fav ? '⭐' : '☆'}
-      </button>
-      <button
-        className="rounded px-1 text-xs hover:bg-accent"
-        title={t('addToVocab')}
-        onClick={async (e) => {
-          e.stopPropagation();
-          const words = (paragraph.textEn ?? '')
-            .replace(/[^A-Za-z'\s]/g, ' ')
-            .split(/\s+/)
-            .filter((w) => w.length > 3);
-          const word = words[0];
-          if (word) {
-            await api.addVocabulary({ word, exampleSentence: paragraph.textEn ?? '', sourceCourseId: courseId, sourceParagraphId: paragraph.id });
-            setToastGlobal(t('addToVocab') + ': ' + word);
-          }
-        }}
-      >
-        🔤
-      </button>
-      <button
-        className="rounded px-1 text-xs hover:bg-accent"
-        title={t('copyText')}
-        onClick={async (e) => {
-          e.stopPropagation();
-          await navigator.clipboard.writeText([paragraph.textEn, paragraph.textZh].filter(Boolean).join('\n'));
-        }}
-      >
-        ⧉
-      </button>
+      <Tooltip label={t('favoriteSentence')}>
+        <button
+          className="rounded px-1 text-xs hover:bg-accent"
+          aria-label={t('favoriteSentence')}
+          onClick={async (e) => {
+            e.stopPropagation();
+            await api.addParagraphFavorite(paragraph.id);
+            setFav(true);
+          }}
+        >
+          <Icon name="favorites" size={13} className={fav ? 'fill-current text-primary' : ''} />
+        </button>
+      </Tooltip>
+      <Tooltip label={t('addToVocab')}>
+        <button
+          className="rounded px-1 text-xs hover:bg-accent"
+          aria-label={t('addToVocab')}
+          onClick={async (e) => {
+            e.stopPropagation();
+            const words = (paragraph.textEn ?? '')
+              .replace(/[^A-Za-z'\s]/g, ' ')
+              .split(/\s+/)
+              .filter((w) => w.length > 3);
+            const word = words[0];
+            if (word) {
+              await api.addVocabulary({ word, exampleSentence: paragraph.textEn ?? '', sourceCourseId: courseId, sourceParagraphId: paragraph.id });
+              showToast(t('addToVocab') + ': ' + word);
+            }
+          }}
+        >
+          <Icon name="bookPlus" size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip label={t('copyText')}>
+        <button
+          className="rounded px-1 text-xs hover:bg-accent"
+          aria-label={t('copyText')}
+          onClick={async (e) => {
+            e.stopPropagation();
+            await navigator.clipboard.writeText([paragraph.textEn, paragraph.textZh].filter(Boolean).join('\n'));
+          }}
+        >
+          <Icon name="copy" size={13} />
+        </button>
+      </Tooltip>
     </>
   );
-}
-
-function setToastGlobal(msg: string) {
-  const el = document.createElement('div');
-  el.textContent = msg;
-  el.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-emerald-600 px-4 py-2 text-sm text-white shadow-lg';
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2200);
 }
 
 /** 段落时间戳编辑器：手动校准 + 试听（严禁伪造时间：仅显式设置） */
@@ -448,8 +462,8 @@ function TimingEditor({
               <span className="shrink-0 tabular-nums text-muted-foreground">
                 {typeof p.startTimeMs === 'number' ? `${formatTime(p.startTimeMs)}–${formatTime(p.endTimeMs ?? 0)}` : '无时间'}
               </span>
-              <Button size="sm" variant="outline" onClick={() => engine.seek(p.startTimeMs ?? 0)}>
-                ▶
+              <Button size="sm" variant="outline" aria-label="试听本段" onClick={() => engine.seek(p.startTimeMs ?? 0)}>
+                <Icon name="play" size={12} />
               </Button>
               <Button
                 size="sm"
@@ -460,7 +474,7 @@ function TimingEditor({
                 }}
                 title={t('setStartTime')}
               >
-                起点→
+                起点
               </Button>
               <Button
                 size="sm"
@@ -471,7 +485,7 @@ function TimingEditor({
                 }}
                 title={t('setEndTime')}
               >
-                终点→
+                终点
               </Button>
               <Button
                 size="sm"
@@ -482,7 +496,7 @@ function TimingEditor({
                 }}
                 title={t('clearTime')}
               >
-                ✕
+                <Icon name="close" size={12} />
               </Button>
             </div>
           ))}
@@ -522,7 +536,7 @@ function NotesPanel({
     void api
       .uploadDocument(courseId, file, { role: 'notes' })
       .then(() => {
-        showToast(`✅ ${file.name}`);
+        showToast(file.name);
         onChanged();
       })
       .catch((err) => showToast(err instanceof Error ? err.message : t('uploadFailed')));
@@ -570,7 +584,8 @@ function NotesPanel({
                 rel="noreferrer"
                 className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 md:hidden"
               >
-                ↗ {t('openInNewTab')}
+                <Icon name="arrowRight" size="sm" />
+                {t('openInNewTab')}
               </a>
               <a
                 href={src}
@@ -578,21 +593,25 @@ function NotesPanel({
                 rel="noreferrer"
                 className="hidden h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent md:inline-flex"
               >
-                ↗ {t('openInNewTab')}
+                <Icon name="arrowRight" size="sm" />
+                {t('openInNewTab')}
               </a>
               <a
                 href={src ? `${src}?download=1` : undefined}
                 download={doc?.originalName}
                 className="hidden h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent sm:inline-flex"
               >
-                ⬇ {t('download')}
+                <Icon name="arrowDown" size="sm" />
+                {t('download')}
               </a>
               <Button size="sm" variant="outline" onClick={() => uploadRef.current?.click()}>
-                📤 {t('uploadNotes')}
+                <Icon name="import" size="sm" />
+                {t('uploadNotes')}
               </Button>
               {doc && (
                 <Button size="sm" variant="destructive" onClick={() => remove(doc)}>
-                  🗑 {t('delete')}
+                  <Icon name="trash" size="sm" />
+                {t('delete')}
                 </Button>
               )}
               <input

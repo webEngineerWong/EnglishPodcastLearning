@@ -1,42 +1,52 @@
 import React from 'react';
 import clsx from 'clsx';
-import { X } from 'lucide-react';
+import { Icon } from './icons';
+import { Tooltip } from './tooltip';
 
 // 基础组件集（shadcn 风格、手写实现，供 Web 与 Electron 共用）
 export const Button = ({
   variant = 'default',
   size = 'md',
+  loading,
   className,
+  children,
+  disabled,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'default' | 'secondary' | 'ghost' | 'outline' | 'destructive' | 'active';
   size?: 'sm' | 'md' | 'lg' | 'icon';
+  loading?: boolean;
 }) => (
   <button
     className={clsx(
-      'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      'inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50',
       {
-        default: 'bg-primary text-primary-foreground hover:opacity-90',
-        secondary: 'bg-secondary text-secondary-foreground hover:opacity-80',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
-        outline: 'border border-border hover:bg-accent hover:text-accent-foreground',
-        destructive: 'bg-destructive text-destructive-foreground hover:opacity-90',
+        default: 'bg-primary text-primary-foreground hover:bg-primary-hover active:scale-[0.98] motion-reduce:active:scale-none',
+        secondary: 'border border-border bg-card hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-none',
+        ghost: 'hover:bg-muted',
+        outline: 'border border-border bg-card hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-none',
+        destructive: 'bg-destructive text-destructive-foreground hover:opacity-90 active:scale-[0.98] motion-reduce:active:scale-none',
         active: 'bg-primary/15 text-primary hover:bg-primary/25'
       }[variant],
       {
-        sm: 'h-8 px-2.5 text-xs',
-        md: 'h-9 px-3.5 text-sm',
-        lg: 'h-10 px-5 text-sm',
+        sm: 'h-8 px-3 text-xs',
+        md: 'h-10 px-4 text-sm',
+        lg: 'h-11 px-5 text-sm',
         icon: 'h-9 w-9'
       }[size],
       className
     )}
+    disabled={disabled || loading}
+    aria-busy={loading || undefined}
     {...props}
-  />
+  >
+    {loading && <Icon name="loading" size="sm" className="animate-spin" />}
+    {children}
+  </button>
 );
 
 export const Card = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={clsx('rounded-lg border border-border bg-card text-card-foreground shadow-sm', className)} {...props} />
+  <div className={clsx('rounded-xl border border-border bg-card text-card-foreground shadow-sm dark:shadow-none', className)} {...props} />
 );
 
 export const CardHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
@@ -61,9 +71,9 @@ export const Badge = ({
       'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
       {
         default: 'bg-primary/15 text-primary',
-        success: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-        warning: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-        danger: 'bg-red-500/15 text-red-600 dark:text-red-400',
+        success: 'bg-success/15 text-success',
+        warning: 'bg-warning/15 text-warning',
+        danger: 'bg-destructive/15 text-destructive',
         muted: 'bg-muted text-muted-foreground'
       }[tone],
       className
@@ -72,20 +82,25 @@ export const Badge = ({
   />
 );
 
-export const Input = ({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <input
-    className={clsx(
-      'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
-      className
-    )}
-    {...props}
-  />
+export const Input = ({ className, error, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { error?: string }) => (
+  <>
+    <input
+      aria-invalid={error ? true : undefined}
+      className={clsx(
+        'flex h-10 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+        error && 'border-destructive focus-visible:ring-destructive',
+        className
+      )}
+      {...props}
+    />
+    {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+  </>
 );
 
 export const Textarea = ({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
   <textarea
     className={clsx(
-      'flex min-h-[70px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+      'flex min-h-[70px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
       className
     )}
     {...props}
@@ -95,7 +110,7 @@ export const Textarea = ({ className, ...props }: React.TextareaHTMLAttributes<H
 export const Select = ({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) => (
   <select
     className={clsx(
-      'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+      'flex h-10 w-full rounded-lg border border-input bg-card px-3 py-1 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
       className
     )}
     {...props}
@@ -116,10 +131,10 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
-export function EmptyState({ icon, title, hint }: { icon?: string; title: string; hint?: string }) {
+export function EmptyState({ icon, title, hint }: { icon?: React.ReactNode; title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-muted-foreground">
-      {icon && <div className="text-3xl">{icon}</div>}
+      {icon && <div className="flex justify-center text-muted-foreground/70">{icon}</div>}
       <div className="text-sm font-medium">{title}</div>
       {hint && <div className="text-xs">{hint}</div>}
     </div>
@@ -141,7 +156,7 @@ export function Modal({
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/60 p-4" onMouseDown={onClose}>
       <div
         className="w-full max-w-lg rounded-lg border border-border bg-card p-4 shadow-lg"
         onMouseDown={(e) => e.stopPropagation()}
@@ -149,7 +164,7 @@ export function Modal({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">{title}</h2>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="close">
-            <X size={16} />
+            <Icon name="close" size="sm" />
           </Button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto">{children}</div>

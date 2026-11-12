@@ -20,7 +20,8 @@
     "db:down": "docker compose down",
     "db:migrate": "pnpm --filter @elp/api prisma:migrate",
     "db:seed": "pnpm --filter @elp/api prisma:seed",
-    "setup:parser": "bash services/pdf-parser/setup.sh"
+    "setup:parser": "bash services/pdf-parser/setup.sh",
+    "check:ui": "node scripts/check-ui-tokens.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

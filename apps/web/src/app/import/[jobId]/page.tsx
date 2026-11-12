@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, useI18n } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, Tooltip, useI18n, useToast, type IconName } from '@elp/ui';
 import type { DocumentRole, ImportJobDto, ImportFileDto } from '@elp/types';
 import { api, assetUrl } from '@/lib/api';
 import { useCategories } from '@/lib/hooks';
@@ -40,6 +40,7 @@ export default function ReviewPage() {
   const [categoryId, setCategoryId] = useState('');
   const [busy, setBusy] = useState(false);
   const { data: categories } = useCategories();
+  const { show: showToast } = useToast();
 
   const loadJob = async () => {
     const j = await api.getImportJob(jobId);
@@ -54,7 +55,7 @@ export default function ReviewPage() {
     setEditing(null);
   };
 
-  /** 点击文件：学习笔记 → 预览说明；对照文本/字幕 → 段落草稿 */
+  /** 点击文件：学习笔记进预览说明；对照文本/字幕进段落草稿 */
   const selectFile = (f: ImportFileDto) => {
     if (f.kind === 'pdf' && f.docRole === 'notes') {
       setNotesPreviewId(f.id);
@@ -82,7 +83,7 @@ export default function ReviewPage() {
         else setSelectedFileId(f.id), await loadDraft(f.id);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : '操作失败');
+      showToast(e instanceof Error ? e.message : '操作失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -111,7 +112,7 @@ export default function ReviewPage() {
       await fn();
       await refresh();
     } catch (e) {
-      alert(e instanceof Error ? e.message : '操作失败');
+      showToast(e instanceof Error ? e.message : '操作失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -139,7 +140,7 @@ export default function ReviewPage() {
         }
         actions={
           <Button variant="outline" onClick={() => router.push('/import')}>
-            ← {t('importJobs')}
+            <Icon name="arrowLeft" size="sm" /> {t('importJobs')}
           </Button>
         }
       />
@@ -151,7 +152,7 @@ export default function ReviewPage() {
             {job.files.map((f: ImportFileDto) => (
               <div key={f.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="shrink-0 text-lg">{fileIcon(f.kind)}</span>
+                  <span className="shrink-0"><Icon name={fileIcon(f.kind)} size="nav" /></span>
                   <button
                     className={`truncate text-left ${selectedFileId === f.id || notesPreviewId === f.id ? 'font-medium text-primary' : 'hover:underline'}`}
                     onClick={() => selectFile(f)}
@@ -163,7 +164,7 @@ export default function ReviewPage() {
                   {f.kind === 'pdf' && (
                     <>
                       <Badge tone={f.docRole === 'notes' ? 'warning' : 'muted'}>
-                        {f.docRole === 'notes' ? `📝 ${t('notes')}` : t('roleSource')}
+                        {f.docRole === 'notes' ? (<span className="inline-flex items-center gap-1"><Icon name="pencil" size={11} />{t('notes')}</span>) : t('roleSource')}
                       </Badge>
                       <Select
                         className="h-7 w-28 text-xs"
@@ -188,10 +189,11 @@ export default function ReviewPage() {
                       const j2 = await api.retryImportFile(jobId, f.id);
                       setJob(j2 as unknown as ImportJobDto);
                     })}>
+                      <Icon name="refresh" size={12} className="mr-1" />
                       {t('retry')}
                     </Button>
                   )}
-                  {f.error && <span className="max-w-[200px] truncate text-xs text-red-500">{f.error}</span>}
+                  {f.error && <span className="max-w-[200px] truncate text-xs text-destructive">{f.error}</span>}
                 </div>
               </div>
             ))}
@@ -204,7 +206,7 @@ export default function ReviewPage() {
         <Card>
           <CardContent className="p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Badge tone="warning">📝 {t('notes')}</Badge>
+              <Badge tone="warning"><Icon name="pencil" size={11} className="mr-1" />{t('notes')}</Badge>
               <span className="text-sm text-muted-foreground">{t('notesPdfHint')}</span>
             </div>
             <iframe
@@ -245,7 +247,7 @@ export default function ReviewPage() {
                   return (
                     <div
                       key={i}
-                      className={`rounded-md border px-3 py-2 ${lowConf ? 'border-l-4 border-l-amber-400' : ''} ${
+                      className={`rounded-md border px-3 py-2 ${lowConf ? 'border-l-4 border-l-warning' : ''} ${
                         isSelected ? 'border-primary bg-primary/5' : 'border-border'
                       }`}
                     >
@@ -303,7 +305,8 @@ export default function ReviewPage() {
                                 {p.type === 'HEADING' && <Badge tone="default">标题</Badge>}
                                 {typeof p.startTimeMs === 'number' && (
                                   <Badge tone={p.timestampConfidence && p.timestampConfidence < 0.3 ? 'warning' : 'success'}>
-                                    ⏱ {Math.floor(p.startTimeMs / 1000)}s
+                                    <Icon name="timer" size={11} className="mr-1" />
+                                    {Math.floor(p.startTimeMs / 1000)}s
                                   </Badge>
                                 )}
                                 {lowConf && <Badge tone="warning">置信度 {Math.round(p.confidence * 100)}%</Badge>}
@@ -320,21 +323,31 @@ export default function ReviewPage() {
                         <div className="flex shrink-0 flex-wrap items-center gap-1">
                           {editing !== i && (
                             <>
-                              <IconBtn title={t('edit')} onClick={() => { setEditing(i); setEditEn(p.textEn ?? ''); setEditZh(p.textZh ?? ''); }}>
-                                ✎
-                              </IconBtn>
-                              <IconBtn title={t('split') + '（在第1句后拆分）'} onClick={() => op(() => api.splitFileParagraph(selectedFileId!, i, 0))}>
-                                ✂
-                              </IconBtn>
-                              <IconBtn title={t('moveUp')} onClick={() => op(() => api.reorderFileParagraph(selectedFileId!, i, 'up'))}>
-                                ↑
-                              </IconBtn>
-                              <IconBtn title={t('moveDown')} onClick={() => op(() => api.reorderFileParagraph(selectedFileId!, i, 'down'))}>
-                                ↓
-                              </IconBtn>
-                              <IconBtn title={t('delete')} danger onClick={() => op(() => api.deleteFileParagraph(selectedFileId!, i))}>
-                                🗑
-                              </IconBtn>
+                              <Tooltip label={t('edit')}>
+                                <IconBtn title={t('edit')} onClick={() => { setEditing(i); setEditEn(p.textEn ?? ''); setEditZh(p.textZh ?? ''); }}>
+                                  <Icon name="pencil" size={12} />
+                                </IconBtn>
+                              </Tooltip>
+                              <Tooltip label={t('split')}>
+                                <IconBtn title={t('split')} onClick={() => op(() => api.splitFileParagraph(selectedFileId!, i, 0))}>
+                                  <Icon name="scissors" size={12} />
+                                </IconBtn>
+                              </Tooltip>
+                              <Tooltip label={t('moveUp')}>
+                                <IconBtn title={t('moveUp')} onClick={() => op(() => api.reorderFileParagraph(selectedFileId!, i, 'up'))}>
+                                  <Icon name="arrowUp" size={12} />
+                                </IconBtn>
+                              </Tooltip>
+                              <Tooltip label={t('moveDown')}>
+                                <IconBtn title={t('moveDown')} onClick={() => op(() => api.reorderFileParagraph(selectedFileId!, i, 'down'))}>
+                                  <Icon name="arrowDown" size={12} />
+                                </IconBtn>
+                              </Tooltip>
+                              <Tooltip label={t('delete')}>
+                                <IconBtn title={t('delete')} danger onClick={() => op(() => api.deleteFileParagraph(selectedFileId!, i))}>
+                                  <Icon name="trash" size={12} />
+                                </IconBtn>
+                              </Tooltip>
                             </>
                           )}
                         </div>
@@ -385,16 +398,17 @@ export default function ReviewPage() {
                       title: publishTitle || undefined,
                       categoryId: categoryId || undefined
                     })) as { courseId?: string; courseIds?: string[] };
-                    alert(`已发布 ${r.courseIds?.length ?? 1} 个课程`);
+                    showToast(`已发布 ${r.courseIds?.length ?? 1} 个课程`);
                     router.push(r.courseId ? `/courses/${r.courseId}` : '/courses');
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : '发布失败');
+                    showToast(e instanceof Error ? e.message : '发布失败', 'error');
                   } finally {
                     setBusy(false);
                   }
                 }}
               >
-                ✓ {t('confirm')} & {t('publish')}
+                <Icon name="check" size={14} />
+                {t('confirm')} & {t('publish')}
               </Button>
             </div>
           </CardContent>
@@ -407,7 +421,7 @@ export default function ReviewPage() {
 function IconBtn({ children, title, onClick, danger }: { children: React.ReactNode; title: string; onClick: () => void; danger?: boolean }) {
   return (
     <button
-      className={`rounded px-1.5 py-0.5 text-xs hover:bg-accent ${danger ? 'text-red-500' : ''}`}
+      className={`rounded px-1.5 py-0.5 text-xs hover:bg-accent ${danger ? 'text-destructive' : ''}`}
       title={title}
       onClick={onClick}
     >
@@ -416,6 +430,7 @@ function IconBtn({ children, title, onClick, danger }: { children: React.ReactNo
   );
 }
 
-function fileIcon(kind: string): string {
-  return { pdf: '📕', txt: '📄', srt: '🕒', mp3: '🎧', m4a: '🎧', wav: '🎧', mp4: '🎬' }[kind] ?? '📦';
+const FILE_ICON: Record<string, IconName> = { pdf: 'pdf', txt: 'file', srt: 'srt', mp3: 'audio', m4a: 'audio', wav: 'audio', mp4: 'video' };
+function fileIcon(kind: string): IconName {
+  return FILE_ICON[kind] ?? 'file';
 }
