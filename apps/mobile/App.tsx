@@ -17,11 +17,13 @@ import {
   TextInput,
   View
 } from 'react-native';
+import type { ScrollViewInstance } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DEFAULT_API_BASE = 'http://MAC_LAN_IP:3001';
 const API_BASE_KEY = 'elp-api-base';
+const FONT_SIZE_KEY = 'elp-font-size';
 
 // ==================== 类型（与 @elp/types DTO 对齐） ====================
 
@@ -93,6 +95,16 @@ function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** 当前播放段落：取最后一个 startTimeMs <= t 的段（与 Web 端 findActiveParagraph 语义一致） */
+function findActiveParagraph(paragraphs: Paragraph[], tSec: number): string | null {
+  let active: string | null = null;
+  for (const p of paragraphs) {
+    if (typeof p.startTimeMs === 'number' && p.startTimeMs / 1000 <= tSec + 0.25) active = p.id;
+    else break;
+  }
+  return active;
 }
 
 function formatMinutes(ms: number): string {
@@ -324,6 +336,12 @@ function CourseListScreen({ apiBase, onOpen }: { apiBase: string; onOpen: (c: Co
 
 // ==================== 课程详情 ====================
 
+const FONT_SIZES = [
+  { label: '小', en: 13, zh: 12 },
+  { label: '中', en: 15, zh: 14 },
+  { label: '大', en: 18, zh: 16 }
+];
+
 function CourseScreen({
   apiBase,
   courseId,
@@ -340,6 +358,27 @@ function CourseScreen({
   const player = useAudioPlayer(null);
   const status = useAudioPlayerStatus(player);
   const loadedAudioRef = useRef<string | null>(null);
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  const paragraphYs = useRef<Map<string, number>>(new Map());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  const [followAudio, setFollowAudio] = useState(true);
+  const [fontIdx, setFontIdx] = useState(1); // 0小 1中 2大
+
+  useEffect(() => {
+    AsyncStorage.getItem(FONT_SIZE_KEY).then((v) => {
+      const idx = Number(v);
+      if (Number.isInteger(idx) && idx >= 0 && idx < FONT_SIZES.length) setFontIdx(idx);
+    });
+  }, []);
+
+  const changeFont = useCallback((delta: number) => {
+    setFontIdx((prev) => {
+      const next = Math.min(FONT_SIZES.length - 1, Math.max(0, prev + delta));
+      void AsyncStorage.setItem(FONT_SIZE_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   const audioUrl = detail?.audios?.[0]?.url
     ? detail.audios[0].url!.startsWith('http')
@@ -392,6 +431,27 @@ function CourseScreen({
 
   const paragraphs = detail?.transcript?.paragraphs ?? [];
 
+  // 当前段落高亮（id 变化才 setState，避免每 tick 重渲）
+  useEffect(() => {
+    if (paragraphs.length === 0 || !status.playing) return;
+    const id = findActiveParagraph(paragraphs, status.currentTime ?? 0);
+    if (id && id !== activeIdRef.current) {
+      activeIdRef.current = id;
+      setActiveId(id);
+    }
+  }, [status.currentTime, status.playing, paragraphs]);
+
+  // 自动跟随：高亮段滚动到可视区上部
+  useEffect(() => {
+    if (!followAudio || !activeId) return;
+    const y = paragraphYs.current.get(activeId);
+    if (typeof y === 'number') {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 72), animated: true });
+    }
+  }, [activeId, followAudio]);
+
+  const font = FONT_SIZES[fontIdx];
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -412,7 +472,7 @@ function CourseScreen({
           <ActivityIndicator size="large" color="#4f46e5" />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 12 }}>
+        <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 12 }}>
           <Text style={styles.detailTitle}>{detail.title}</Text>
 
           {audioUrl ? (
@@ -429,6 +489,21 @@ function CourseScreen({
                 </Text>
                 <Pressable onPress={() => void player.seekTo(Math.max(0, (status.currentTime ?? 0) - 15))}>
                   <Text style={styles.timeText}>«15s</Text>
+                </Pressable>
+              </View>
+              <View style={styles.playerRow}>
+                {/* 字号调节 */}
+                <Pressable style={styles.smallBtn} onPress={() => changeFont(-1)}>
+                  <Text style={styles.smallBtnText}>A−</Text>
+                </Pressable>
+                <Text style={styles.timeText}>{font.label}</Text>
+                <Pressable style={styles.smallBtn} onPress={() => changeFont(1)}>
+                  <Text style={styles.smallBtnText}>A+</Text>
+                </Pressable>
+                <View style={{ flex: 1 }} />
+                {/* 跟随音轨开关 */}
+                <Pressable style={[styles.smallBtn, followAudio && styles.smallBtnActive]} onPress={() => setFollowAudio(!followAudio)}>
+                  <Text style={[styles.smallBtnText, followAudio && styles.smallBtnTextActive]}>↕ 跟随</Text>
                 </Pressable>
               </View>
               <Text style={styles.hintText}>点击段落跳转播放；静音键不影响；锁屏可继续</Text>
@@ -459,15 +534,25 @@ function CourseScreen({
           ) : null}
 
           <Text style={styles.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
-          {paragraphs.map((p) => (
-            <Pressable key={p.id} style={styles.paragraph} onPress={() => seekTo(p.startTimeMs)}>
-              {p.textEn ? <Text style={styles.textEn}>{p.textEn}</Text> : null}
-              {p.textZh ? <Text style={styles.textZh}>{p.textZh}</Text> : null}
-              <Text style={styles.timestamp}>
-                {typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}
-              </Text>
-            </Pressable>
-          ))}
+          {paragraphs.map((p) => {
+            const isActive = p.id === activeId;
+            return (
+              <Pressable
+                key={p.id}
+                style={[styles.paragraph, isActive && styles.paragraphActive]}
+                onLayout={(e) => paragraphYs.current.set(p.id, e.nativeEvent.layout.y)}
+                onPress={() => seekTo(p.startTimeMs)}
+              >
+                {p.textEn ? (
+                  <Text style={[styles.textEn, { fontSize: font.en }, isActive && styles.textEnActive]}>{p.textEn}</Text>
+                ) : null}
+                {p.textZh ? <Text style={[styles.textZh, { fontSize: font.zh }]}>{p.textZh}</Text> : null}
+                <Text style={styles.timestamp}>
+                  {typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}
+                </Text>
+              </Pressable>
+            );
+          })}
           {paragraphs.length === 0 && <Text style={styles.hintText}>本课程暂无文本</Text>}
         </ScrollView>
       )}
@@ -667,10 +752,16 @@ const styles = StyleSheet.create({
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   playBtn: { backgroundColor: '#4f46e5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   playBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  smallBtn: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: '#a5b4fc', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#fff' },
+  smallBtnActive: { backgroundColor: '#4f46e5', borderColor: '#4f46e5' },
+  smallBtnText: { color: '#4f46e5', fontSize: 12, fontWeight: '700' },
+  smallBtnTextActive: { color: '#fff' },
   timeText: { fontSize: 12, color: '#4338ca', fontVariant: ['tabular-nums'] },
   paragraph: { backgroundColor: '#fff', borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 12, gap: 4 },
-  textEn: { fontSize: 14, color: '#0f172a' },
-  textZh: { fontSize: 13, color: '#64748b' },
+  paragraphActive: { backgroundColor: '#eef2ff', borderColor: '#6366f1', borderWidth: 1.5 },
+  textEn: { color: '#0f172a' },
+  textEnActive: { color: '#312e81', fontWeight: '700' },
+  textZh: { color: '#64748b' },
   timestamp: { fontSize: 11, color: '#94a3b8' },
   notesText: { fontSize: 13, color: '#475569', lineHeight: 19 },
   docRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
