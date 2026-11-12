@@ -39,3 +39,9 @@ playwright-report/
 test-results/
 **/data/storage/
 **/data/uploads/
+
+# 移动端本地私有配置（设备 ID 等）
+apps/mobile/scripts/.env.device
+apps/mobile/.claude/
+apps/mobile/dist/
+apps/mobile/team.local.md

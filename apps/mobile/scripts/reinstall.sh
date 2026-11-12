@@ -1,11 +1,17 @@
 #!/bin/bash
 # 一键：增量构建 → 重装到 iPhone → 启动 → 打包 ipa 到桌面
 # 用途：免费签名 7 天到期续期、代码更新后重装（USB 连接手机后运行）
+#
+# 设备 ID 属于隐私不入库：本地在同目录建 .env.device（已被 .gitignore 忽略）：
+#   export ELP_DEVICE_UDID=00008150-xxxx      # xcrun devicectl list devices 查看
+#   export ELP_COREDEVICE_ID=6A869FC1-xxxx
 set -e
-cd "$(dirname "$0")/../ios"
+cd "$(dirname "$0")"
+[ -f .env.device ] && source .env.device
+cd ios
 
-DEVICE_ID="ELP_DEVICE_UDID"   # Hzb · iPhone 17 Pro
-CORE_ID="ELP_COREDEVICE_ID"
+DEVICE_ID="${ELP_DEVICE_UDID:?缺少 ELP_DEVICE_UDID —— 见 scripts/.env.device 模板或 xcrun devicectl list devices}"
+CORE_ID="${ELP_COREDEVICE_ID:?缺少 ELP_COREDEVICE_ID}"
 BUNDLE_ID="com.myenglishlearning.app"
 
 echo "==> 构建 Release（增量，约 1-3 分钟）"

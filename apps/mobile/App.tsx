@@ -22,7 +22,8 @@ import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-au
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DEFAULT_API_BASE = 'http://MAC_LAN_IP:3001';
+// 真机调试时改为 Mac 的局域网地址（或在 App「设置」中填写，会持久保存）
+const DEFAULT_API_BASE = 'http://localhost:3001';
 const API_BASE_KEY = 'elp-api-base';
 const FONT_SIZE_KEY = 'elp-font-size';
 
