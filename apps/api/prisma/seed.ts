@@ -61,6 +61,59 @@ const DEMO_ZH = [
   '这是一个很好的例子，希望你在实际生活中能用上它。'
 ];
 
+/** 生成一个很小的合法单页 PDF（学习笔记占位，用于验证课程页「学习笔记」标签与 iframe 预览） */
+function makeNotesPdf(): Buffer {
+  const lines = ['Study Notes (Demo)', '', 'Key Point 1: asking questions', 'Key Point 2: time expressions'];
+  const contentLines: string[] = ['BT', '/F1 16 Tf', '60 760 Td', '18 TL'];
+  lines.forEach((line, i) => {
+    const text = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    contentLines.push(i === 0 ? `(${text}) Tj` : `T* (${text}) Tj`);
+  });
+  contentLines.push('ET');
+  const stream = contentLines.join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objects.forEach((obj, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) pdf += `${String(off).padStart(10, '0')} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+/** 幂等写入演示学习笔记 PDF 资产（role = notes），旧 seed 数据也能补上 */
+async function ensureNotesAsset(courseId: string) {
+  const has = await prisma.documentAsset.findFirst({ where: { courseId, role: 'notes' } });
+  if (has) return;
+  const storageDir = path.resolve(process.env.STORAGE_LOCAL_ROOT ?? path.join(process.cwd(), '../../data/storage'));
+  const notesKey = 'documents/seed/demo-ep1-notes.pdf';
+  const notesPath = path.join(storageDir, notesKey);
+  fs.mkdirSync(path.dirname(notesPath), { recursive: true });
+  const notesBuffer = makeNotesPdf();
+  fs.writeFileSync(notesPath, notesBuffer);
+  await prisma.documentAsset.create({
+    data: {
+      courseId,
+      kind: 'pdf',
+      role: 'notes',
+      storageKey: notesKey,
+      originalName: 'Episode_1_学习笔记.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: notesBuffer.length
+    }
+  });
+}
+
 async function main() {
   const email = process.env.DEFAULT_USER_EMAIL ?? 'local@elp.dev';
   const user = await prisma.user.upsert({
@@ -83,6 +136,7 @@ async function main() {
   // 演示课程
   const existing = await prisma.course.findFirst({ where: { title: 'EP1 - Asking Questions（演示课程）' } });
   if (existing) {
+    await ensureNotesAsset(existing.id);
     console.log('seed: 演示课程已存在，跳过');
     return;
   }
@@ -138,6 +192,8 @@ async function main() {
       }
     });
   }
+
+  await ensureNotesAsset(course.id);
 
   // 第二个无音频课程（验证无音频场景）
   await prisma.course.create({
