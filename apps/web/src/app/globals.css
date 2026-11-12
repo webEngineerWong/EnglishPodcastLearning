@@ -1,6 +1,4 @@
-/* 共享 Design Tokens（唯一来源：packages/ui/src/styles/tokens.css） */
-@import '../../../packages/ui/src/styles/tokens.css';
-
+/* Design Tokens 由 @elp/ui/src/styles/tokens.css 提供（见 layout/main 的 JS import，保证单一来源） */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

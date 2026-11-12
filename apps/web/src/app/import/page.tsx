@@ -6,7 +6,6 @@ import { Badge, Button, Card, CardContent, EmptyState, Icon, Spinner, useI18n, u
 import { api } from '@/lib/api';
 import { useImportJobs, useInvalidate } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
-import { kindFromFilename } from '@elp/types';
 
 const ACCEPT = '.pdf,.txt,.srt,.mp3,.m4a,.wav,.mp4';
 

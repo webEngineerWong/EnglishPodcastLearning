@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, Tabs, Tooltip, useI18n, useToast } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Select, Spinner, Tabs, Tooltip, useI18n, useToast } from '@elp/ui';
 import {
   AudioPlayer,
   formatTime,
@@ -366,7 +366,7 @@ export default function CourseDetailPage() {
 
       {/* 段落时间编辑 */}
       {showTiming && audio && (
-        <TimingEditor paragraphs={paragraphs} audioId={audio.id} engine={engine} onChanged={() => api.getCourse(courseId).then(setCourse)} />
+        <TimingEditor paragraphs={paragraphs} engine={engine} onChanged={() => api.getCourse(courseId).then(setCourse)} />
       )}
 
       {toast && (
@@ -437,12 +437,10 @@ function ParagraphActions({ paragraph, courseId }: { paragraph: TranscriptParagr
 /** 段落时间戳编辑器：手动校准 + 试听（严禁伪造时间：仅显式设置） */
 function TimingEditor({
   paragraphs,
-  audioId,
   engine,
   onChanged
 }: {
   paragraphs: TranscriptParagraphDto[];
-  audioId: string;
   engine: AudioEngine;
   onChanged: () => void;
 }) {

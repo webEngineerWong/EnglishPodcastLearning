@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import '@elp/ui/src/styles/tokens.css';
 import './globals.css';
 import { Providers } from './providers';
 

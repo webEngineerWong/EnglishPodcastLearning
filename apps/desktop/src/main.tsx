@@ -11,6 +11,7 @@ import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardSho
 import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
 import { desktop } from './bridge';
+import '@elp/ui/src/styles/tokens.css';
 import './index.css';
 
 const QueryCtx = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 15_000 } } });

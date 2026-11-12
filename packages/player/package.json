@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@elp/types": "workspace:*",
-    "lucide-react": "^1.71.0"
+    "lucide-react": "^1.71.0",
+    "@elp/icons": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18"

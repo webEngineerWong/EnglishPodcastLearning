@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import React from 'react';
 import clsx from 'clsx';
-import { Badge, Button, Icon, Tooltip, useI18n, useTheme } from '@elp/ui';
+import { Badge, Button, Icon, useI18n, useTheme } from '@elp/ui';
 
 const NAV = [
   { href: '/', key: 'dashboard', name: 'dashboard' },
