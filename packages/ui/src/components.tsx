@@ -166,3 +166,33 @@ export function ProgressBar({ value, className }: { value: number; className?: s
     </div>
   );
 }
+
+/** 轻量标签栏：样式与工具栏「双语/仅英/仅中」按钮组一致，供 Web / Electron 复用 */
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  className
+}: {
+  tabs: readonly { value: T; label: React.ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={clsx('inline-flex overflow-hidden rounded-md border border-border', className)} role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={value === tab.value}
+          className={clsx('px-3 py-1.5 text-xs', value === tab.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted')}
+          onClick={() => onChange(tab.value)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}

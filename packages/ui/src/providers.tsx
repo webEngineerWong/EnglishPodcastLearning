@@ -141,7 +141,19 @@ const zh = {
   setStartTime: '设为起点',
   setEndTime: '设为终点',
   clearTime: '清除时间',
-  listenParagraph: '试听本段'
+  listenParagraph: '试听本段',
+  tabSubtitles: '实时字幕',
+  studyMaterials: '学习资料',
+  openInNewTab: '新标签页打开',
+  download: '下载',
+  uploadNotes: '上传学习笔记 PDF',
+  notesPdfHint: '学习笔记将原样保存，不做解析',
+  roleSource: '对照文本',
+  textFilesUnit: '个文本文件',
+  audioFilesUnit: '个音频文件',
+  publishNotesHint: '学习笔记 PDF 会附到对应课程，不单独生成课程',
+  notesOnlyCannotPublish: '只有学习笔记 PDF，无法生成课程（需要同集数的文本或音频）',
+  uploadFailed: '上传失败'
 } satisfies Record<string, string>;
 
 type Dict = Record<keyof typeof zh, string>;
@@ -246,7 +258,19 @@ const en: Dict = {
   setStartTime: 'Set start',
   setEndTime: 'Set end',
   clearTime: 'Clear',
-  listenParagraph: 'Listen'
+  listenParagraph: 'Listen',
+  tabSubtitles: 'Live Subtitles',
+  studyMaterials: 'Materials',
+  openInNewTab: 'Open in New Tab',
+  download: 'Download',
+  uploadNotes: 'Upload Notes PDF',
+  notesPdfHint: 'Notes PDFs are saved as-is and not parsed',
+  roleSource: 'Source Text',
+  textFilesUnit: 'text file(s)',
+  audioFilesUnit: 'audio file(s)',
+  publishNotesHint: 'Notes PDFs are attached to their matching course; no separate course is created',
+  notesOnlyCannotPublish: 'Only notes PDFs — a course needs text or audio of the same episode',
+  uploadFailed: 'Upload failed'
 };
 
 const dicts: Record<Locale, Dict> = { zh, en };

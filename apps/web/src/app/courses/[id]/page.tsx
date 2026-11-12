@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, useI18n } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, Tabs, useI18n } from '@elp/ui';
 import {
   AudioPlayer,
   formatTime,
@@ -12,9 +12,11 @@ import {
   type AudioEngine
 } from '@elp/player';
 import { BilingualReader, MaterialReader, findActiveParagraph, type DisplayMode } from '@elp/ui';
-import type { TranscriptParagraphDto } from '@elp/types';
+import type { NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { api, assetUrl } from '@/lib/api';
 import { DifficultyBadge, PageHeader } from '@/components/shell';
+
+type CourseTab = 'subtitles' | 'materials' | 'notes';
 
 export default function CourseDetailPage() {
   const params = useParams<{ id: string }>();
@@ -32,7 +34,7 @@ export default function CourseDetailPage() {
   const [activeParagraphId, setActiveParagraphId] = useState<string | null>(null);
   const [showTiming, setShowTiming] = useState(false);
   const appendRef = useRef<HTMLInputElement>(null);
-  const [materialsOpen, setMaterialsOpen] = useState(false);
+  const [tab, setTab] = useState<CourseTab>('subtitles');
   const resumeMs = useMemo(() => Number(searchParams.get('resume') ?? 0), [searchParams]);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
@@ -47,6 +49,10 @@ export default function CourseDetailPage() {
       .then((c) => {
         if (cancelled) return;
         setCourse(c);
+        // URL 参数直达标签（?tab=notes / ?tab=materials），不影响 ?resume=
+        const want = searchParams.get('tab');
+        if (want === 'notes' && ((c.notesDocuments?.length ?? 0) > 0 || c.notes)) setTab('notes');
+        else if (want === 'materials' && (c.materials?.length ?? 0) > 0) setTab('materials');
         setLoading(false);
       })
       .catch((e) => {
@@ -135,6 +141,7 @@ export default function CourseDetailPage() {
 
   // 学习资料面板（对照 PDF 解析内容）—— 按自身时间戳跟随音频滚动
   const materials = course?.materials ?? [];
+  const notesDocs = useMemo(() => course?.notesDocuments ?? [], [course]);
   const materialActiveIds = useMemo(() => {
     const map: Record<string, string | null> = {};
     for (const m of materials) {
@@ -221,90 +228,95 @@ export default function CourseDetailPage() {
         </Card>
       )}
 
-      {/* 工具栏 */}
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-xs text-muted-foreground">{t('clickToPlay')}</span>
-        <div className="flex overflow-hidden rounded-md border border-border">
-          {(
-            [
-              ['both', t('bilingual')],
-              ['en', t('onlyEn')],
-              ['zh', t('onlyZh')]
-            ] as [DisplayMode, string][]
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              className={`px-3 py-1.5 text-xs ${mode === m ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-              onClick={() => setMode(m)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <Button variant={autoScroll ? 'active' : 'outline'} size="sm" onClick={() => setAutoScroll(!autoScroll)}>
-          ↕ {t('autoScroll')}
-        </Button>
-        {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 {t('loopParagraph')}</Badge>}
-        {state.loopMode === 'ab' && <Badge tone="warning">A-B</Badge>}
+      {/* 标签栏：实时字幕 | 学习资料 | 学习笔记（播放器保持 sticky，切标签不打断音频） */}
+      <div className="mb-3">
+        <Tabs<CourseTab>
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'subtitles', label: t('tabSubtitles') },
+            ...(materials.length > 0 ? [{ value: 'materials' as const, label: t('studyMaterials') }] : []),
+            ...(notesDocs.length > 0 || course.notes ? [{ value: 'notes' as const, label: t('notes') }] : [])
+          ]}
+        />
       </div>
 
-      {/* 双语正文（恢复单栏：字幕在前，学习资料默认折叠在下方） */}
-      <Card>
-        <CardContent className="p-3 md:p-4">
-          {paragraphs.length === 0 ? (
-            <EmptyState icon="📄" title={t('noTranscript')} />
-          ) : (
-            <BilingualReader
-              paragraphs={paragraphs}
-              activeParagraphId={activeParagraphId}
-              onParagraphClick={clickParagraph}
-              onNoTimestamp={() => undefined}
-              mode={mode}
-              autoScroll={autoScroll}
-              renderParagraphActions={renderActions}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {/* 工具栏（仅实时字幕标签下显示） */}
+      {tab === 'subtitles' && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs text-muted-foreground">{t('clickToPlay')}</span>
+          <div className="flex overflow-hidden rounded-md border border-border">
+            {(
+              [
+                ['both', t('bilingual')],
+                ['en', t('onlyEn')],
+                ['zh', t('onlyZh')]
+              ] as [DisplayMode, string][]
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                className={`px-3 py-1.5 text-xs ${mode === m ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                onClick={() => setMode(m)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button variant={autoScroll ? 'active' : 'outline'} size="sm" onClick={() => setAutoScroll(!autoScroll)}>
+            ↕ {t('autoScroll')}
+          </Button>
+          {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 {t('loopParagraph')}</Badge>}
+          {state.loopMode === 'ab' && <Badge tone="warning">A-B</Badge>}
+        </div>
+      )}
 
-      {materials.length > 0 && (
+      {/* 实时字幕 */}
+      {tab === 'subtitles' && (
         <Card>
-          <CardContent className="p-0">
-            <button
-              className="flex w-full items-center justify-between px-4 py-3 text-sm text-muted-foreground hover:text-foreground"
-              onClick={() => setMaterialsOpen(!materialsOpen)}
-            >
-              <span>
-                📄 学习资料（{materials.map((m) => m.title).filter(Boolean).join('、')} · {materials.reduce((n, m) => n + m.paragraphs.length, 0)} 段）
-              </span>
-              <span>{materialsOpen ? '▲ 收起' : '▼ 展开'}</span>
-            </button>
-            {materialsOpen && (
-              <div className="space-y-5 border-t border-border px-4 py-4">
-                {materials.map((m) => (
-                  <div key={m.id}>
-                    {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
-                    <MaterialReader
-                      paragraphs={m.paragraphs}
-                      activeParagraphId={materialActiveIds[m.id] ?? null}
-                      followAudio={autoScroll}
-                    />
-                  </div>
-                ))}
-              </div>
+          <CardContent className="p-3 md:p-4">
+            {paragraphs.length === 0 ? (
+              <EmptyState icon="📄" title={t('noTranscript')} />
+            ) : (
+              <BilingualReader
+                paragraphs={paragraphs}
+                activeParagraphId={activeParagraphId}
+                onParagraphClick={clickParagraph}
+                onNoTimestamp={() => undefined}
+                mode={mode}
+                autoScroll={autoScroll}
+                renderParagraphActions={renderActions}
+              />
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* 学习笔记 */}
-      {course.notes && (
-        <Card className="mt-4">
-          <CardContent className="p-4">
-            <h3 className="mb-2 text-sm font-semibold">{t('notes')}</h3>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{course.notes}</p>
+      {/* 学习资料（原折叠区内容，MaterialReader 跟随音频滚动） */}
+      {tab === 'materials' && (
+        <Card>
+          <CardContent className="space-y-5 p-3 md:p-4">
+            {materials.map((m) => (
+              <div key={m.id}>
+                {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+                <MaterialReader
+                  paragraphs={m.paragraphs}
+                  activeParagraphId={materialActiveIds[m.id] ?? null}
+                  followAudio={autoScroll}
+                />
+              </div>
+            ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* 学习笔记（内嵌 PDF 预览） */}
+      {tab === 'notes' && (
+        <NotesPanel
+          courseId={courseId}
+          notes={course.notes}
+          docs={notesDocs}
+          onChanged={() => api.getCourse(courseId).then(setCourse)}
+        />
       )}
 
       {/* 段落时间编辑 */}
@@ -447,5 +459,140 @@ function TimingEditor({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** 学习笔记标签：iframe 内嵌 PDF 预览 + 上传/删除。
+ *  iOS Safari 的 iframe 只能显示 PDF 第一页，故窄屏（<768px）将「新标签页打开」做成主按钮。 */
+function NotesPanel({
+  courseId,
+  notes,
+  docs,
+  onChanged
+}: {
+  courseId: string;
+  notes?: string | null;
+  docs: NotesDocumentDto[];
+  onChanged: () => void;
+}) {
+  const { t } = useI18n();
+  const [selectedId, setSelectedId] = useState<string | null>(docs[0]?.id ?? null);
+  const [toast, setToast] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const doc = docs.find((d) => d.id === selectedId) ?? docs[0];
+  const src = assetUrl(doc?.url);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const upload = (file: File | undefined) => {
+    if (!file) return;
+    void api
+      .uploadDocument(courseId, file, { role: 'notes' })
+      .then(() => {
+        showToast(`✅ ${file.name}`);
+        onChanged();
+      })
+      .catch((err) => showToast(err instanceof Error ? err.message : t('uploadFailed')));
+  };
+
+  const remove = (d: NotesDocumentDto) => {
+    if (!window.confirm(t('deleteConfirm'))) return;
+    void api
+      .deleteDocument(d.id)
+      .then(() => {
+        setSelectedId(null);
+        onChanged();
+      })
+      .catch((err) => showToast(err instanceof Error ? err.message : t('uploadFailed')));
+  };
+
+  return (
+    <div className="space-y-4">
+      {notes && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="mb-2 text-sm font-semibold">{t('notes')}</h3>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{notes}</p>
+          </CardContent>
+        </Card>
+      )}
+      {docs.length > 0 && (
+        <Card>
+          <CardContent className="p-3 md:p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {docs.length > 1 && (
+                <Select className="max-w-56" value={doc?.id ?? ''} onChange={(e) => setSelectedId(e.target.value)}>
+                  {docs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.originalName}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              <div className="flex-1" />
+              {/* 窄屏主按钮（iOS Safari iframe 限制）；桌面端为描边按钮 */}
+              <a
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 md:hidden"
+              >
+                ↗ {t('openInNewTab')}
+              </a>
+              <a
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent md:inline-flex"
+              >
+                ↗ {t('openInNewTab')}
+              </a>
+              <a
+                href={src ? `${src}?download=1` : undefined}
+                download={doc?.originalName}
+                className="hidden h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent sm:inline-flex"
+              >
+                ⬇ {t('download')}
+              </a>
+              <Button size="sm" variant="outline" onClick={() => uploadRef.current?.click()}>
+                📤 {t('uploadNotes')}
+              </Button>
+              {doc && (
+                <Button size="sm" variant="destructive" onClick={() => remove(doc)}>
+                  🗑 {t('delete')}
+                </Button>
+              )}
+              <input
+                ref={uploadRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  upload(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+            {doc && src && (
+              <iframe
+                key={doc.id}
+                title={doc.originalName}
+                src={`${src}#view=FitH`}
+                className="w-full rounded-lg border border-border bg-card"
+                style={{ height: 'max(600px, calc(100vh - 14rem))' }}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-sm text-background shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
   );
 }
