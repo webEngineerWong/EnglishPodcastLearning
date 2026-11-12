@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, Tabs, type DisplayMode } from '@elp/ui';
-import { House, Library, FileUp, BookOpen, Bookmark, Moon, Sun, Headphones, Inbox, Search, Plus, FileText, Play } from 'lucide-react';
+import { House, Library, FileUp, BookOpen, Bookmark, Moon, Sun, Headphones, Inbox, Search, Plus, FileText, Play, ImagePlus } from 'lucide-react';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
 import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
@@ -56,6 +56,18 @@ function useInvalidate() {
   return (keys: string[]) => {
     for (const k of keys) void qc.invalidateQueries({ queryKey: [k] });
   };
+}
+
+// 课程封面：有 coverUrl 用图，否则品牌渐变 + 首字（与 Web 一致）
+function CourseCover({ url, title, className }: { url?: string | null; title: string; className?: string }) {
+  const initial = title.trim().charAt(0).toUpperCase() || '🎧';
+  return url ? (
+    <img src={url} alt="" className={'shrink-0 object-cover ' + (className ?? '')} />
+  ) : (
+    <div className={'flex shrink-0 select-none items-center justify-center bg-gradient-to-br from-indigo-500 to-indigo-700 font-semibold text-white ' + (className ?? '')} aria-hidden>
+      {initial}
+    </div>
+  );
 }
 
 // ==================== 布局 ====================
@@ -270,7 +282,8 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
       ) : (
         <div className="space-y-2">
           {data.items.map((c) => (
-            <Card key={c.id} className="group transition-shadow hover:shadow-md">
+            <Card key={c.id} className="group overflow-hidden transition-shadow hover:shadow-md">
+              <CourseCover url={c.coverUrl ?? null} title={c.title} className="h-24 w-full text-xl" />
               <CardContent className="p-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenCourse(c.id)}>
@@ -349,6 +362,7 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
 type CourseTab = 'subtitles' | 'materials' | 'notes';
 
 function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
+  const coverRef = React.useRef<HTMLInputElement>(null);
   const { t } = useI18n();
   const api = useApiClient();
   const invalidate = useInvalidate();
@@ -497,6 +511,27 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
         </button>
         {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 单句循环（L 键）</Badge>}
         {audio && <span className="flex items-center gap-1"><Headphones size={12} />{audio.originalName}</span>}
+        <button className="text-primary hover:underline" onClick={() => coverRef.current?.click()}>
+          设置封面
+        </button>
+        <input
+          ref={coverRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            void api
+              .uploadCourseCover(id, file)
+              .then(() => {
+                toast('封面已更新', true);
+                invalidate(['course']);
+              })
+              .catch((err) => toast(err instanceof Error ? err.message : '封面上传失败'));
+            e.target.value = '';
+          }}
+        />
       </div>
       {audio ? (
         <div className="mb-4">
