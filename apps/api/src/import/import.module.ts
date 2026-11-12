@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Injectable, Logger, Module, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Injectable, Logger, Module, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -7,18 +7,23 @@ import { IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator'
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
 import { UserResolver } from '../common/current-user';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.tokens';
 import type { StorageService } from '../storage/storage.interface';
+import { DocumentsModule, DocumentsService } from '../documents/documents.module';
 import { ParserClient, type ParserResult } from './parser-client';
 import { fixFilename } from '../common/filename';
 import { contentKey, sha256Of } from '../common/content-address';
 import {
   assignTimestampsFromSrt,
+  detectNotesDocument,
+  episodeKeyOf,
   isChineseDominant,
   mergeSrtCuesToParagraphs,
+  nameMatches,
   parseSrt,
   rollingLinesToSegments,
   rollingSrtToLines,
@@ -41,16 +46,6 @@ function kindOf(name: string): ImportFileKind | null {
   if (ext === 'wav') return 'wav';
   if (ext === 'm4a') return 'm4a';
   return null;
-}
-
-function normalizeName(name: string): string {
-  return name
-    .replace(/\.[^.]+$/, '')
-    .replace(/[（(]/g, '')
-    .replace(/[）)]/g, '')
-    .replace(/[\s_.-]+/g, '')
-    .replace(/对照文本|对照|翻译|文本|字幕|英文|中文|配套音频|音频|学习笔记/g, '')
-    .toLowerCase();
 }
 
 export interface DraftParagraph {
@@ -114,16 +109,8 @@ export class ImportService {
         });
       }
 
-      // 解析结果复用：同内容文件此前解析成功 → 直接引用 parsedJson，秒级完成
-      const priorParsed = await this.prisma.importFile.findFirst({
-        where: { sha256, status: { in: ['PARSED', 'MATCHED'] }, parsedJson: { not: Prisma.DbNull } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, parsedJson: true, paragraphCount: true, status: true }
-      });
-
-      const AUDIO_KINDS_SET = ['mp3', 'm4a', 'wav', 'mp4'];
-      if (priorParsed && !AUDIO_KINDS_SET.includes(kind)) {
-        // 文本类：复用解析结果（状态沿用 PARSED/MATCHED；MATCHED 关系在 matchMedia 重新判定）
+      // 学习笔记预判（文件名规则）：跳过解析与解析结果复用，直接置为已处理
+      if (detectNotesDocument(f.originalname, null) === 'notes') {
         await this.prisma.importFile.create({
           data: {
             jobId: job.id,
@@ -133,6 +120,33 @@ export class ImportService {
             sha256,
             sizeBytes: f.size,
             status: 'PARSED',
+            docRole: 'notes',
+            error: null
+          }
+        });
+        continue;
+      }
+
+      // 解析结果复用：同内容文件此前解析成功 → 直接引用 parsedJson，秒级完成
+      const priorParsed = await this.prisma.importFile.findFirst({
+        where: { sha256, status: { in: ['PARSED', 'MATCHED'] }, parsedJson: { not: Prisma.DbNull } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, parsedJson: true, paragraphCount: true, status: true }
+      });
+
+      const AUDIO_KINDS_SET = ['mp3', 'm4a', 'wav', 'mp4'];
+      if (priorParsed && !AUDIO_KINDS_SET.includes(kind)) {
+        // 文本类：复用解析结果（不重复解析）。状态保持 PENDING：是否学习笔记要等
+        // processJob 的内容检测判定（是笔记则丢弃草稿），随后统一置为 PARSED
+        await this.prisma.importFile.create({
+          data: {
+            jobId: job.id,
+            kind,
+            originalName: f.originalname,
+            storageKey: key,
+            sha256,
+            sizeBytes: f.size,
+            status: 'PENDING',
             paragraphCount: priorParsed.paragraphCount,
             parsedJson: priorParsed.parsedJson as object,
             error: null
@@ -183,7 +197,47 @@ export class ImportService {
           await tick();
         }
       }
-      const paths = [...localPaths.values()];
+      // ---------- 学习笔记检测：文件名规则 + 前2页内容关键词，命中的 PDF 跳过解析 ----------
+      const notesIds = new Set<string>();
+      for (const f of pdfs) {
+        if (localPaths.has(f.id) && detectNotesDocument(f.originalName, null) === 'notes') notesIds.add(f.id);
+      }
+      const toDetect = pdfs.filter((f) => localPaths.has(f.id) && !notesIds.has(f.id));
+      if (toDetect.length > 0) {
+        try {
+          const detectResults = await this.parser.detectBatch(toDetect.map((f) => localPaths.get(f.id)!));
+          const byDetectPath = new Map(detectResults.map((r) => [r.input, r]));
+          for (const f of toDetect) {
+            const r = byDetectPath.get(localPaths.get(f.id)!);
+            const firstPagesText = r && r.ok ? (r.detect?.text ?? null) : null;
+            if (detectNotesDocument(f.originalName, firstPagesText) === 'notes') notesIds.add(f.id);
+          }
+        } catch (e) {
+          // 检测失败不改变原有解析行为：全部按对照文本处理
+          this.logger.warn(`detect batch failed, treat all PDFs as source: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+      for (const f of pdfs.filter((x) => notesIds.has(x.id))) {
+        // 笔记 PDF：不解析（pdf_parser 会得到错乱结果），原样保存，段落草稿置空
+        await this.prisma.importFile.update({
+          where: { id: f.id },
+          data: { docRole: 'notes', status: 'PARSED', paragraphCount: null, parsedJson: Prisma.DbNull, error: null }
+        });
+        await fs.promises.rm(localPaths.get(f.id)!, { force: true }).catch(() => undefined);
+        await tick();
+      }
+
+      // 非笔记且已带解析草稿（createJob 同内容复用）的 PDF：直接置为已处理，不重复解析
+      const reusedIds = new Set<string>();
+      for (const f of pdfs.filter((x) => localPaths.has(x.id) && !notesIds.has(x.id) && x.parsedJson != null)) {
+        reusedIds.add(f.id);
+        await this.prisma.importFile.update({ where: { id: f.id }, data: { status: 'PARSED', error: null } });
+        await fs.promises.rm(localPaths.get(f.id)!, { force: true }).catch(() => undefined);
+        await tick();
+      }
+
+      const parseTargets = pdfs.filter((f) => localPaths.has(f.id) && !notesIds.has(f.id) && !reusedIds.has(f.id));
+      const paths = parseTargets.map((f) => localPaths.get(f.id)!);
       if (paths.length > 0) {
         let batchResults: { ok: boolean; input: string; result?: ParserResult; error?: string }[] = [];
         try {
@@ -192,7 +246,7 @@ export class ImportService {
           this.logger.warn(`batch parse failed, fallback to single: ${e instanceof Error ? e.message : e}`);
         }
         const byPath = new Map(batchResults.map((r) => [r.input, r]));
-        for (const f of pdfs) {
+        for (const f of parseTargets) {
           const localPath = localPaths.get(f.id);
           if (!localPath) continue;
           const r = byPath.get(localPath);
@@ -299,7 +353,7 @@ export class ImportService {
   /** 文件名匹配 + 双语字幕合成：PDF 用英文字幕对时间轴；纯字幕任务合成双语段落 */
   private async matchMedia(jobId: string) {
     const [texts, audios, srts] = await Promise.all([
-      this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['pdf', 'txt'] }, status: { in: ['PARSED', 'MATCHED'] } } }),
+      this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['pdf', 'txt'] }, status: { in: ['PARSED', 'MATCHED'] }, docRole: { not: 'notes' } } }),
       this.prisma.importFile.findMany({ where: { jobId, kind: { in: ['mp3', 'm4a', 'wav', 'mp4'] } } }),
       this.prisma.importFile.findMany({ where: { jobId, kind: 'srt' } })
     ]);
@@ -334,7 +388,7 @@ export class ImportService {
 
     // 2) PDF/TXT：用英文（或 mixed）SRT 给段落对时间轴
     for (const t of texts) {
-      const enSrt = srts.find((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? '') && nameMatch(s.originalName, t.originalName));
+      const enSrt = srts.find((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? '') && nameMatches(s.originalName, t.originalName));
       if (enSrt && draftOf.get(enSrt.id)) {
         await this.applySrtTimestamps(t.id, enSrt.id);
         await this.prisma.importFile.update({ where: { id: enSrt.id }, data: { status: 'MATCHED' } });
@@ -344,9 +398,9 @@ export class ImportService {
 
     // 3) 纯字幕双语合成：同名英文 SRT + 中文 SRT（+ 可选同名音频）→ 双语段落写入英文 SRT 的 draft
     for (const enS of srts.filter((s) => (langOf.get(s.id) ?? '') === 'en')) {
-      const zhS = srts.find((s) => (langOf.get(s.id) ?? '') === 'zh' && nameMatch(s.originalName, enS.originalName));
+      const zhS = srts.find((s) => (langOf.get(s.id) ?? '') === 'zh' && nameMatches(s.originalName, enS.originalName));
       if (!zhS || !draftOf.get(enS.id) || !draftOf.get(zhS.id)) continue;
-      const audio = audios.find((a) => nameMatch(a.originalName, enS.originalName));
+      const audio = audios.find((a) => nameMatches(a.originalName, enS.originalName));
       const bilingual = this.buildBilingualFromSrts(draftOf.get(enS.id)!, draftOf.get(zhS.id)!);
       const enMeta = draftOf.get(enS.id)!.meta ?? {};
       const meta = { ...enMeta, synthesized: 'bilingual', zhSource: zhS.originalName, audioMatched: Boolean(audio) };
@@ -361,7 +415,7 @@ export class ImportService {
     // 4) 音频兜底匹配：未匹配音频与同集数的文本/英文字幕配对；无配对对象则标记 SKIPPED（等待同名文本）
     for (const a of audios.filter((x) => !['MATCHED', 'FAILED'].includes(x.status))) {
       const partner = [...texts, ...srts.filter((s) => ['en', 'mixed'].includes(langOf.get(s.id) ?? ''))].find((t) =>
-        nameMatch(t.originalName, a.originalName)
+        nameMatches(t.originalName, a.originalName)
       );
       if (partner) {
         await this.prisma.importFile.update({ where: { id: a.id }, data: { status: 'MATCHED', error: null } });
@@ -393,7 +447,7 @@ export class ImportService {
 
     const groups = new Map<string, typeof pool>();
     for (const f of pool) {
-      const key = episodeKey(f.originalName);
+      const key = episodeKeyOf(f.originalName);
       if (!key) continue;
       const arr = groups.get(key) ?? [];
       arr.push(f);
@@ -404,7 +458,8 @@ export class ImportService {
     const touchedJobs = new Set<string>();
     for (const files of groups.values()) {
       if (files.length < 2) continue;
-      const texts = files.filter((f) => ['pdf', 'txt'].includes(f.kind));
+      // 学习笔记 PDF 参与凑组（随同集文件聚合），但不作为可解析文本参与 canAssemble
+      const texts = files.filter((f) => ['pdf', 'txt'].includes(f.kind) && f.docRole !== 'notes');
       const enSrts = files.filter((f) => f.kind === 'srt' && (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'en');
       const zhSrts = files.filter((f) => f.kind === 'srt' && (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'zh');
 
@@ -429,6 +484,7 @@ export class ImportService {
             sha256: f.sha256,
             sizeBytes: f.sizeBytes,
             status: AUDIO_KINDS.includes(f.kind as ImportFileKind) && f.status === 'SKIPPED' ? 'PENDING' : f.status,
+            docRole: f.docRole,
             parsedJson: f.parsedJson ?? undefined,
             paragraphCount: f.paragraphCount ?? undefined
           }
@@ -735,6 +791,27 @@ export class ImportService {
     return this.getJob(jobId);
   }
 
+  /** 手动纠正导入文件类型（校对页）：source ↔ notes，保持状态一致 */
+  async setFileRole(fileId: string, docRole: 'source' | 'notes') {
+    const f = await this.prisma.importFile.findUnique({ where: { id: fileId } });
+    if (!f) throw new NotFoundException(`ImportFile ${fileId} not found`);
+    if (f.documentAssetId) throw new BadRequestException('该文件已发布归档到课程，不能更改类型');
+    if (f.docRole !== docRole) {
+      if (docRole === 'notes') {
+        // 改为学习笔记：丢弃已有解析草稿，状态直接置为已处理
+        await this.prisma.importFile.update({
+          where: { id: fileId },
+          data: { docRole: 'notes', status: 'PARSED', paragraphCount: null, parsedJson: Prisma.DbNull, error: null }
+        });
+      } else {
+        // 改回对照文本：重新进入解析队列（后台）
+        await this.prisma.importFile.update({ where: { id: fileId }, data: { docRole: 'source', status: 'PENDING', error: null } });
+        void this.processJob(f.jobId).catch(() => undefined);
+      }
+    }
+    return this.getJob(f.jobId);
+  }
+
   async deleteJob(id: string) {
     const files = await this.prisma.importFile.findMany({ where: { jobId: id }, select: { storageKey: true } });
     await this.prisma.importJob.delete({ where: { id } });
@@ -894,7 +971,7 @@ export class ImportService {
     // 按集数分组；无编号的文件各自独立成组
     const groups = new Map<string, typeof pool>();
     for (const f of pool) {
-      const key = episodeKey(f.originalName) ?? `solo-${f.id}`;
+      const key = episodeKeyOf(f.originalName) ?? `solo-${f.id}`;
       const arr = groups.get(key) ?? [];
       arr.push(f);
       groups.set(key, arr);
@@ -905,9 +982,21 @@ export class ImportService {
     let totalParagraphs = 0;
 
     for (const group of groups.values()) {
-      const texts = group.filter((f) => ['pdf', 'txt'].includes(f.kind));
+      // 学习笔记 PDF 不计入文本文件：不生成 material transcript，仅归档为 DocumentAsset(role=notes)
+      const texts = group.filter((f) => ['pdf', 'txt'].includes(f.kind) && f.docRole !== 'notes');
+      const notesFiles = group.filter((f) => f.kind === 'pdf' && f.docRole === 'notes');
       const srts = group.filter((f) => f.kind === 'srt');
       const audio = group.find((f) => AUDIO_KINDS.includes(f.kind as ImportFileKind));
+
+      // 只含学习笔记、没有文本/字幕/音频的组：不生成空课程
+      if (texts.length === 0 && srts.length === 0 && !audio) {
+        for (const n of notesFiles) {
+          await this.prisma.importFile
+            .update({ where: { id: n.id }, data: { error: '未找到同集数的文本/音频，笔记未附加到课程；请补传对照文本、字幕或音频后再发布' } })
+            .catch(() => undefined);
+        }
+        continue;
+      }
 
       // 字幕源优先级：双语合成（en srt）> 纯英文/混合 > 纯中文
       const subtitleFile =
@@ -1013,13 +1102,14 @@ export class ImportService {
         });
       }
 
-      // ── 原始文件归档（importFileId 绑定 = 防重发标记） ──
-      for (const f of [...texts, ...(subtitleFile ? [subtitleFile] : []), ...(audio ? [audio] : [])]) {
+      // ── 原始文件归档（importFileId 绑定 = 防重发标记）；学习笔记以 role=notes 归档 ──
+      for (const f of [...texts, ...(subtitleFile ? [subtitleFile] : []), ...(audio ? [audio] : []), ...notesFiles]) {
         await this.prisma.documentAsset
           .create({
             data: {
               courseId: course.id,
               kind: f.kind === 'mp4' ? 'mp4' : (f.kind as 'pdf' | 'txt' | 'srt'),
+              role: f.docRole === 'notes' ? 'notes' : 'source',
               storageKey: f.storageKey,
               originalName: f.originalName,
               mimeType:
@@ -1036,6 +1126,11 @@ export class ImportService {
       createdCourses.push(course.id);
     }
 
+    if (createdCourses.length === 0) {
+      // 典型场景：任务里只有学习笔记 PDF，没有同集数的文本/音频
+      throw new BadRequestException('任务中只有学习笔记 PDF（缺少同集数的文本/音频），未生成课程；请补传对照文本、字幕或音频后再发布');
+    }
+
     await this.prisma.importJob.update({ where: { id: jobId }, data: { status: 'COMPLETED' } });
     return { courseId: createdCourses[0], courseIds: createdCourses, paragraphCount: totalParagraphs };
   }
@@ -1050,6 +1145,7 @@ interface ImportFileRow {
   sha256: string | null;
   sizeBytes: number;
   status: string;
+  docRole: string;
   parsedJson: unknown;
   paragraphCount: number | null;
   jobId: string;
@@ -1059,22 +1155,6 @@ interface ImportFileRow {
 function zhOrFirst(srts: ImportFileRow[]): ImportFileRow | undefined {
   const zh = srts.find((f) => (f.parsedJson as { meta?: { language?: string } } | null)?.meta?.language === 'zh');
   return zh ?? srts[0];
-}
-
-/** 文件名匹配：规范化相等 或 集数编号相等（episode1 不会误配 episode10-13） */
-function nameMatch(a: string, b: string): boolean {
-  const nA = normalizeName(a);
-  const nB = normalizeName(b);
-  if (nA && nB && nA === nB) return true;
-  const eA = episodeKey(a);
-  const eB = episodeKey(b);
-  return Boolean(eA && eB && eA === eB);
-}
-
-/** 提取文件名中的集数编号（Episode 12 / ep12 / 第12集 等），用于跨后缀精确匹配 */
-function episodeKey(name: string): string | null {
-  const m = name.match(/(?:episode|ep|第)\s*[_-]?\s*(\d{1,4})\s*集?/i);
-  return m ? `ep${m[1]}` : null;
 }
 
 function cleanTitle(filename: string): string {
@@ -1126,11 +1206,15 @@ export class ReorderParagraphDto {
   @IsIn(['up', 'down']) direction!: 'up' | 'down';
 }
 
+export class SetFileRoleDto {
+  @IsIn(['source', 'notes']) docRole!: 'source' | 'notes';
+}
+
 // ---------- Controller ----------
 @ApiTags('import')
 @Controller('import')
 export class ImportController {
-  constructor(private service: ImportService) {}
+  constructor(private service: ImportService, private documents: DocumentsService) {}
 
   @Post()
   @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 100 }], { storage: memoryStorage(), limits: { fileSize: MAX_BYTES } }))
@@ -1156,6 +1240,18 @@ export class ImportController {
   @Post('jobs/:id/files/:fileId/retry')
   retry(@Param('id') jobId: string, @Param('fileId') fileId: string) {
     return this.service.retryFile(jobId, fileId);
+  }
+
+  /** 手动纠正文件类型（对照文本 ↔ 学习笔记） */
+  @Patch('files/:fileId/role')
+  setRole(@Param('fileId') fileId: string, @Body() dto: SetFileRoleDto) {
+    return this.service.setFileRole(fileId, dto.docRole);
+  }
+
+  /** 学习笔记/导入文件原始 PDF 预览（inline，不做任何解析） */
+  @Get('files/:fileId/raw')
+  async rawFile(@Param('fileId') fileId: string, @Res() res: Response) {
+    await this.documents.streamImportFileInline(fileId, res);
   }
 
   /** 某个文件的草稿段落（校对界面数据源） */
@@ -1209,6 +1305,7 @@ export class ImportController {
 }
 
 @Module({
+  imports: [DocumentsModule],
   controllers: [ImportController],
   providers: [ImportService, ParserClient, UserResolver]
 })

@@ -168,6 +168,7 @@ export class CoursesService {
         id: d.id,
         courseId: d.courseId,
         kind: d.kind,
+        role: d.role,
         originalName: d.originalName,
         url: await this.storage.getSignedUrl(d.storageKey, 7200),
         sizeBytes: d.sizeBytes,
@@ -175,6 +176,15 @@ export class CoursesService {
         createdAt: d.createdAt
       }))
     );
+    // 学习笔记（role=notes）：url 指向 inline 文件接口，前端用 assetUrl() 补全
+    const notesDocuments = c.documents
+      .filter((d) => d.role === 'notes')
+      .map((d) => ({
+        id: d.id,
+        originalName: d.originalName,
+        url: `/api/documents/${d.id}/file`,
+        sizeBytes: d.sizeBytes
+      }));
 
     return {
       id: c.id,
@@ -194,6 +204,7 @@ export class CoursesService {
       updatedAt: c.updatedAt,
       audios: audiosWithUrl,
       documents: documentsWithUrl,
+      notesDocuments,
       transcript,
       materials
     };

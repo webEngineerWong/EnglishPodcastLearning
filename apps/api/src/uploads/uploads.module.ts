@@ -81,9 +81,17 @@ export class UploadsService {
     return { ...asset, url };
   }
 
-  async uploadDocument(file: Express.Multer.File, courseId?: string, kind?: 'pdf' | 'txt' | 'srt') {
+  async uploadDocument(file: Express.Multer.File, courseId?: string, kind?: 'pdf' | 'txt' | 'srt', role?: 'source' | 'notes') {
     file.originalname = fixFilename(file.originalname);
     this.validate(file.originalname, file.mimetype, 'document', file.size);
+    const isNotes = role === 'notes';
+    if (isNotes) {
+      // 学习笔记：仅允许 PDF，原样保存（不做解析）
+      const ext = extOf(file.originalname);
+      if (ext !== '.pdf' || (file.mimetype && file.mimetype !== 'application/pdf' && file.mimetype !== 'application/octet-stream')) {
+        throw new BadRequestException('学习笔记仅支持 PDF 文件');
+      }
+    }
     if (courseId) {
       const course = await this.prisma.course.findUnique({ where: { id: courseId }, select: { id: true } });
       if (!course) throw new NotFoundException(`Course ${courseId} not found`);
@@ -95,6 +103,7 @@ export class UploadsService {
       data: {
         courseId,
         kind: detected,
+        role: isNotes ? 'notes' : 'source',
         storageKey: key,
         originalName: file.originalname,
         mimeType: file.mimetype || 'application/pdf',
@@ -110,6 +119,8 @@ export class UploadsService {
 export class UploadQueryDto {
   @IsOptional() @IsString() courseId?: string;
   @IsOptional() @IsIn(['pdf', 'txt', 'srt']) kind?: 'pdf' | 'txt' | 'srt';
+  /** source = 对照文本等（默认）；notes = 学习笔记（仅 PDF，原样保存） */
+  @IsOptional() @IsIn(['source', 'notes']) role?: 'source' | 'notes';
 }
 
 @ApiTags('uploads')
@@ -120,18 +131,33 @@ export class UploadsController {
   @Post('audio')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_BYTES } }))
   @ApiConsumes('multipart/form-data')
-  async audio(@Body() dto: UploadQueryDto, @UploadedFile() file?: Express.Multer.File) {
+  async audio(
+    @Query('courseId') queryCourseId?: string,
+    @Body() dto?: UploadQueryDto,
+    @UploadedFile() file?: Express.Multer.File
+  ) {
     if (!file) throw new BadRequestException('缺少 file 字段');
-    if (!dto.courseId) throw new BadRequestException('缺少 courseId');
-    return this.service.uploadAudio(file, dto.courseId);
+    // courseId 兼容 query 与 form 字段两种传法（api-client 走 query）
+    const courseId = queryCourseId || dto?.courseId;
+    if (!courseId) throw new BadRequestException('缺少 courseId');
+    return this.service.uploadAudio(file, courseId);
   }
 
   @Post('document')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_BYTES } }))
   @ApiConsumes('multipart/form-data')
-  async document(@Body() dto: UploadQueryDto, @UploadedFile() file?: Express.Multer.File) {
+  async document(
+    @Query('courseId') queryCourseId?: string,
+    @Query('kind') queryKind?: string,
+    @Query('role') queryRole?: string,
+    @Body() dto?: UploadQueryDto,
+    @UploadedFile() file?: Express.Multer.File
+  ) {
     if (!file) throw new BadRequestException('缺少 file 字段');
-    return this.service.uploadDocument(file, dto.courseId, dto.kind);
+    const courseId = queryCourseId || dto?.courseId;
+    const kind = (queryKind || dto?.kind) as 'pdf' | 'txt' | 'srt' | undefined;
+    const role = (queryRole || dto?.role) as 'source' | 'notes' | undefined;
+    return this.service.uploadDocument(file, courseId, kind, role);
   }
 }
 

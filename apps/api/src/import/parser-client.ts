@@ -55,12 +55,25 @@ export class ParserClient {
    * 消除每篇一次的 Python/PyMuPDF 启动开销；部分失败不影响整批。
    */
   async parseBatch(absPaths: string[]): Promise<{ ok: boolean; input: string; result?: ParserResult; error?: string }[]> {
+    return this.runJsonlBatch<{ result?: ParserResult }>(['--batch'], absPaths);
+  }
+
+  /**
+   * 批量类型检测（--detect 轻量模式）：单 Python 进程提取每个 PDF 前 2 页文本，
+   * 供学习笔记判定使用，不做任何解析。
+   */
+  async detectBatch(absPaths: string[]): Promise<{ ok: boolean; input: string; detect?: { pages: number; sampledPages: number; text: string }; error?: string }[]> {
+    return this.runJsonlBatch<{ detect?: { pages: number; sampledPages: number; text: string } }>(['--batch', '--detect'], absPaths);
+  }
+
+  /** 单 Python 进程批量执行（JSONL 输出），parseBatch / detectBatch 共用 */
+  private async runJsonlBatch<T>(extraArgs: string[], absPaths: string[]): Promise<({ ok: boolean; input: string; error?: string } & T)[]> {
     const script = this.scriptPath();
     if (!fs.existsSync(script)) throw new ServiceUnavailableException(`PDF parser script not found: ${script}`);
     const bin = this.pythonBin();
     const outPath = `/tmp/elp-parser/batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jsonl`;
     await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
-    const args = [script, '--batch', '--out', outPath, ...absPaths];
+    const args = [script, ...extraArgs, '--out', outPath, ...absPaths];
 
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       const child = spawn(bin, args, { cwd: path.dirname(script), timeout: 300_000 });
@@ -79,9 +92,9 @@ export class ParserClient {
     await fs.promises.rm(outPath, { force: true });
     const parsed = lines.map((l) => {
       try {
-        return JSON.parse(l) as { ok: boolean; input: string; result?: ParserResult; error?: string };
+        return JSON.parse(l) as { ok: boolean; input: string; error?: string } & T;
       } catch {
-        return { ok: false, input: '?', error: 'JSONL 行解析失败' };
+        return { ok: false, input: '?', error: 'JSONL 行解析失败' } as { ok: boolean; input: string; error?: string } & T;
       }
     });
     if (parsed.length === 0) {

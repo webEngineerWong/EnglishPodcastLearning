@@ -400,12 +400,29 @@ def parse_one(input_path: str, min_header_repeat: float = 0.5) -> dict:
     return result
 
 
+def detect_notes_text(input_path: str, max_pages: int = 2) -> dict:
+    """--detect 轻量模式：仅提取前 N 页原始文本（供学习笔记类型判定），不做任何解析，
+    不影响现有解析行为。"""
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    doc = fitz.open(input_path)
+    try:
+        sampled = min(max_pages, doc.page_count)
+        text = "\n".join(doc[i].get_text() for i in range(sampled))
+        return {"pages": doc.page_count, "sampledPages": sampled, "text": text}
+    finally:
+        doc.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description="PDF bilingual parser")
     ap.add_argument("input", nargs="*", help="PDF 文件路径（可多个）")
     ap.add_argument("--out", default=None, help="输出 JSON 路径（单文件）或 JSONL 路径（批量）")
     ap.add_argument("--min-header-repeat", type=float, default=0.5, help="页眉/页脚重复阈值(占页数比例)")
     ap.add_argument("--batch", action="store_true", help="批量模式：多文件输出 JSONL")
+    ap.add_argument("--detect", action="store_true", help="轻量模式：仅提取前2页文本用于学习笔记判定，不解析")
     args = ap.parse_args()
 
     try:
@@ -420,6 +437,31 @@ def main():
     if not args.input:
         print("ERROR: no input files", file=sys.stderr)
         sys.exit(2)
+
+    # --detect：只取前2页文本（类型判定用），单文件 JSON / 多文件 JSONL
+    if args.detect:
+        use_jsonl = len(args.input) > 1 or (args.out or "").endswith(".jsonl") or args.batch
+        if use_jsonl:
+            out = args.out or (args.input[0] + ".detect.jsonl")
+            t0 = time.time()
+            with open(out, "w", encoding="utf-8") as f:
+                for idx, path in enumerate(args.input, 1):
+                    try:
+                        f.write(json.dumps({"ok": True, "input": path, "detect": detect_notes_text(path)}, ensure_ascii=False) + "\n")
+                        print(f"[{idx}/{len(args.input)}] {os.path.basename(path)} detected", flush=True)
+                    except Exception as e:  # 单文件失败不拖垮整批
+                        f.write(json.dumps({"ok": False, "input": path, "error": str(e)}, ensure_ascii=False) + "\n")
+                        print(f"[{idx}/{len(args.input)}] {os.path.basename(path)} DETECT FAILED: {e}", file=sys.stderr, flush=True)
+            print(f"DETECT OK files={len(args.input)} seconds={round(time.time() - t0, 2)}")
+        else:
+            try:
+                payload = {"ok": True, "input": args.input[0], "detect": detect_notes_text(args.input[0])}
+            except Exception as e:
+                payload = {"ok": False, "input": args.input[0], "error": str(e)}
+            out = args.out or (args.input[0] + ".detect.json")
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+        return
 
     # 批量模式：多文件 → JSONL（单进程，消除 N 次 Python/PyMuPDF 启动开销）
     if len(args.input) > 1 or (args.out or "").endswith(".jsonl"):

@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CoursesModule } from './courses/courses.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { DocumentsModule } from './documents/documents.module';
 import { ImportModule } from './import/import.module';
 import { ProgressModule } from './progress/progress.module';
 import { StatsModule } from './stats/stats.module';
@@ -21,6 +22,7 @@ import { VocabularyModule } from './vocabulary/vocabulary.module';
     CategoriesModule,
     CoursesModule,
     UploadsModule,
+    DocumentsModule,
     ImportModule,
     ProgressModule,
     StatsModule,
