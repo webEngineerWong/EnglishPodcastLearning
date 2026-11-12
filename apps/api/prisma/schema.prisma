@@ -3,6 +3,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // 同时生成 glibc(Debian) 与 musl(Alpine) 的查询引擎，避免构建镜像与运行镜像
+  // 基础镜像不一致时出现 "could not locate the Query Engine for runtime" 崩溃
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
@@ -161,6 +164,8 @@ model DocumentAsset {
   courseId     String?
   course       Course?        @relation(fields: [courseId], references: [id], onDelete: Cascade)
   kind         ImportFileKind @default(pdf)
+  // source = 对照文本等原始文档；notes = 学习笔记（原样保存，不解析）
+  role         String         @default("source")
   storageKey   String
   originalName String
   mimeType     String         @default("application/pdf")
@@ -335,6 +340,8 @@ model ImportFile {
   sha256       String?
   sizeBytes    Int              @default(0)
   status       ImportFileStatus @default(PENDING)
+  // 与 DocumentAsset.role 对应：source = 对照文本等；notes = 学习笔记（跳过解析）
+  docRole      String           @default("source")
   error        String?          @db.Text
   paragraphCount Int?
   // 解析产物（PDF 段落 JSON 快照，便于重新校对）
