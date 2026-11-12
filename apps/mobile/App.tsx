@@ -1,7 +1,7 @@
 /**
  * English Learning Platform — iOS 客户端（Expo Development Build）
- * 与 Web/Electron 共用同一 NestJS API：课程列表 / 音频播放 / 双语文本 / 学习笔记打开。
- * API 地址可在「设置」中修改，默认指向本机局域网地址。
+ * 与 Web/Electron 共用同一 NestJS API：学习台 / 课程 / 音频播放 / 双语文本 / 生词本 / 收藏 / 学习笔记打开。
+ * 音频会话设为 playsInSilentMode（静音键不影响播放）+ 后台播放。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -17,16 +17,17 @@ import {
   TextInput,
   View
 } from 'react-native';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const DEFAULT_API_BASE = 'http://MAC_LAN_IP:3001';
 const API_BASE_KEY = 'elp-api-base';
 
+// ==================== 类型（与 @elp/types DTO 对齐） ====================
+
 type CourseListItem = {
   id: string;
   title: string;
-  description?: string | null;
   difficulty: number;
   audioCount: number;
   lastPositionMs?: number | null;
@@ -38,7 +39,6 @@ type Paragraph = {
   textEn?: string | null;
   textZh?: string | null;
   startTimeMs?: number | null;
-  endTimeMs?: number | null;
 };
 
 type NotesDocument = { id: string; originalName: string; url: string; sizeBytes: number };
@@ -48,7 +48,44 @@ type CourseDetail = CourseListItem & {
   notesDocuments?: NotesDocument[];
   audios: { id: string; originalName: string; url?: string }[];
   transcript?: { paragraphs: Paragraph[] } | null;
-  materials?: { id: string; title?: string | null; paragraphs: Paragraph[] }[];
+};
+
+type DashboardStats = {
+  todayMs: number;
+  totalMs: number;
+  streakDays: number;
+  courseCount: number;
+  completedCount: number;
+  vocabularyCount: number;
+  continueLearning?: {
+    courseId: string;
+    title: string;
+    audioName?: string | null;
+    positionMs: number;
+    lastLearnedAt: string;
+  } | null;
+};
+
+type VocabStatus = 'NEW' | 'LEARNING' | 'MASTERED';
+
+type VocabularyItem = {
+  id: string;
+  word: string;
+  phonetic?: string | null;
+  definitionZh?: string | null;
+  definitionEn?: string | null;
+  exampleSentence?: string | null;
+  status: VocabStatus;
+  reviewCount: number;
+};
+
+type FavoriteItem = {
+  id: string;
+  type: 'COURSE' | 'PARAGRAPH';
+  courseTitle?: string | null;
+  excerptEn?: string | null;
+  excerptZh?: string | null;
+  createdAt: string;
 };
 
 function formatTime(ms: number): string {
@@ -58,12 +95,30 @@ function formatTime(ms: number): string {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
+function formatMinutes(ms: number): string {
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${min} 分钟`;
+  return `${Math.floor(min / 60)} 小时 ${min % 60} 分`;
+}
+
+type TabKey = 'dashboard' | 'courses' | 'vocabulary' | 'favorites';
+
+const TABS: { key: TabKey; label: string; icon: string }[] = [
+  { key: 'dashboard', label: '学习台', icon: '📊' },
+  { key: 'courses', label: '课程', icon: '📚' },
+  { key: 'vocabulary', label: '生词本', icon: '🔤' },
+  { key: 'favorites', label: '收藏', icon: '⭐' }
+];
+
 export default function App() {
   const [apiBase, setApiBase] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [current, setCurrent] = useState<CourseListItem | null>(null);
+  const [tab, setTab] = useState<TabKey>('courses');
+  const [openCourseId, setOpenCourseId] = useState<string | null>(null);
 
   useEffect(() => {
+    // 静音键下仍可播放（学习类 App 标准行为）+ 锁屏/后台继续播放
+    void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch(() => undefined);
     AsyncStorage.getItem(API_BASE_KEY).then((v) => setApiBase(v || DEFAULT_API_BASE));
   }, []);
 
@@ -72,6 +127,7 @@ export default function App() {
     void AsyncStorage.setItem(API_BASE_KEY, trimmed);
     setApiBase(trimmed);
     setShowSettings(false);
+    setOpenCourseId(null);
   }, []);
 
   if (!apiBase) {
@@ -82,22 +138,124 @@ export default function App() {
     );
   }
 
+  const onOpenCourse = (id: string) => {
+    setTab('courses');
+    setOpenCourseId(id);
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="default" />
-      {current ? (
-        <CourseScreen apiBase={apiBase} courseId={current.id} initial={current} onBack={() => setCurrent(null)} onOpenSettings={() => setShowSettings(true)} />
+      {openCourseId ? (
+        <CourseScreen apiBase={apiBase} courseId={openCourseId} onBack={() => setOpenCourseId(null)} onOpenSettings={() => setShowSettings(true)} />
       ) : (
-        <CourseListScreen apiBase={apiBase} onOpen={setCurrent} onOpenSettings={() => setShowSettings(true)} />
+        <View style={styles.screen}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>{TABS.find((t) => t.key === tab)?.label ?? '英语学习'}</Text>
+            <Pressable onPress={() => setShowSettings(true)} hitSlop={8}>
+              <Text style={styles.settingsBtn}>⚙️ 设置</Text>
+            </Pressable>
+          </View>
+          <View style={styles.tabContent}>
+            {tab === 'dashboard' && <DashboardScreen apiBase={apiBase} onOpenCourse={onOpenCourse} />}
+            {tab === 'courses' && <CourseListScreen apiBase={apiBase} onOpen={(c) => setOpenCourseId(c.id)} />}
+            {tab === 'vocabulary' && <VocabularyScreen apiBase={apiBase} />}
+            {tab === 'favorites' && <FavoritesScreen apiBase={apiBase} onOpenCourse={onOpenCourse} />}
+          </View>
+          {/* 底部导航（对齐 Web/Electron 菜单） */}
+          <View style={styles.tabBar}>
+            {TABS.map((t) => (
+              <Pressable key={t.key} style={styles.tabItem} onPress={() => setTab(t.key)}>
+                <Text style={[styles.tabIcon, tab === t.key && styles.tabIconActive]}>{t.icon}</Text>
+                <Text style={[styles.tabLabel, tab === t.key && styles.tabLabelActive]}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       )}
       {showSettings && <SettingsModal apiBase={apiBase} onSave={saveApiBase} onClose={() => setShowSettings(false)} />}
     </View>
   );
 }
 
+// ==================== 学习台 ====================
+
+function DashboardScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCourse: (id: string) => void }) {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${apiBase}/api/stats/dashboard`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStats((await res.json()) as DashboardStats);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>无法连接 API（{error}）</Text>
+        <Text style={styles.hintText}>{apiBase}</Text>
+      </View>
+    );
+  }
+  if (!stats) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+      </View>
+    );
+  }
+
+  const cells: [string, string][] = [
+    ['今日学习', formatMinutes(stats.todayMs)],
+    ['累计学习', formatMinutes(stats.totalMs)],
+    ['连续天数', `${stats.streakDays} 天`],
+    ['课程数', String(stats.courseCount)],
+    ['已完成', String(stats.completedCount)],
+    ['生词数', String(stats.vocabularyCount)]
+  ];
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 12 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}>
+      {stats.continueLearning && (
+        <Pressable style={[styles.card, styles.continueCard]} onPress={() => onOpenCourse(stats.continueLearning!.courseId)}>
+          <Text style={styles.continueLabel}>▶ 继续上次学习</Text>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {stats.continueLearning.title}
+          </Text>
+          <Text style={styles.cardMeta}>
+            {stats.continueLearning.audioName ?? ''} · 上次 {formatTime(stats.continueLearning.positionMs)}
+          </Text>
+        </Pressable>
+      )}
+      <View style={styles.grid}>
+        {cells.map(([label, value]) => (
+          <View key={label} style={styles.gridCell}>
+            <Text style={styles.gridLabel}>{label}</Text>
+            <Text style={styles.gridValue}>{value}</Text>
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
 // ==================== 课程列表 ====================
 
-function CourseListScreen({ apiBase, onOpen, onOpenSettings }: { apiBase: string; onOpen: (c: CourseListItem) => void; onOpenSettings: () => void }) {
+function CourseListScreen({ apiBase, onOpen }: { apiBase: string; onOpen: (c: CourseListItem) => void }) {
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,51 +278,47 @@ function CourseListScreen({ apiBase, onOpen, onOpenSettings }: { apiBase: string
     void load();
   }, [load]);
 
-  return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>英语学习</Text>
-        <Pressable onPress={onOpenSettings} hitSlop={8}>
-          <Text style={styles.settingsBtn}>⚙️ 设置</Text>
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+      </View>
+    );
+  }
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>无法连接 API</Text>
+        <Text style={styles.hintText}>{error}</Text>
+        <Pressable style={styles.retryBtn} onPress={() => void load()}>
+          <Text style={styles.retryText}>重试</Text>
         </Pressable>
       </View>
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#4f46e5" />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>无法连接 API</Text>
-          <Text style={styles.hintText}>{error}</Text>
-          <Text style={styles.hintText}>{apiBase}</Text>
-          <Pressable style={styles.retryBtn} onPress={() => void load()}>
-            <Text style={styles.retryText}>重试</Text>
-          </Pressable>
-        </View>
-      ) : courses.length === 0 ? (
+    );
+  }
+  return (
+    <FlatList
+      data={courses}
+      keyExtractor={(c) => c.id}
+      contentContainerStyle={{ padding: 16, gap: 10 }}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
+      ListEmptyComponent={
         <View style={styles.center}>
           <Text style={styles.hintText}>暂无课程，先在电脑端导入</Text>
         </View>
-      ) : (
-        <FlatList
-          data={courses}
-          keyExtractor={(c) => c.id}
-          contentContainerStyle={{ padding: 16, gap: 10 }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
-          renderItem={({ item }) => (
-            <Pressable style={styles.card} onPress={() => onOpen(item)}>
-              <Text style={styles.cardTitle} numberOfLines={2}>
-                {item.title}
-              </Text>
-              <Text style={styles.cardMeta}>
-                🎧 {item.audioCount} · L{item.difficulty}
-                {item.lastPositionMs ? ` · 上次 ${formatTime(item.lastPositionMs)}` : ''}
-              </Text>
-            </Pressable>
-          )}
-        />
+      }
+      renderItem={({ item }) => (
+        <Pressable style={styles.card} onPress={() => onOpen(item)}>
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <Text style={styles.cardMeta}>
+            🎧 {item.audioCount} · L{item.difficulty}
+            {item.lastPositionMs ? ` · 上次 ${formatTime(item.lastPositionMs)}` : ''}
+          </Text>
+        </Pressable>
       )}
-    </View>
+    />
   );
 }
 
@@ -178,7 +332,6 @@ function CourseScreen({
 }: {
   apiBase: string;
   courseId: string;
-  initial: CourseListItem;
   onBack: () => void;
   onOpenSettings: () => void;
 }) {
@@ -262,7 +415,6 @@ function CourseScreen({
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 12 }}>
           <Text style={styles.detailTitle}>{detail.title}</Text>
 
-          {/* 音频播放器 */}
           {audioUrl ? (
             <View style={styles.playerCard}>
               <Text numberOfLines={1} style={styles.playerTitle}>
@@ -279,13 +431,12 @@ function CourseScreen({
                   <Text style={styles.timeText}>«15s</Text>
                 </Pressable>
               </View>
-              <Text style={styles.hintText}>点击段落跳转播放（锁屏后可继续播放）</Text>
+              <Text style={styles.hintText}>点击段落跳转播放；静音键不影响；锁屏可继续</Text>
             </View>
           ) : (
             <Text style={styles.hintText}>本课程暂无音频</Text>
           )}
 
-          {/* 学习笔记 PDF（系统浏览器渲染，App 本体仍为独立原生应用） */}
           {(detail.notesDocuments?.length ?? 0) > 0 && (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>📝 学习笔记</Text>
@@ -300,7 +451,6 @@ function CourseScreen({
             </View>
           )}
 
-          {/* 课程备注 */}
           {detail.notes ? (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>备注</Text>
@@ -308,7 +458,6 @@ function CourseScreen({
             </View>
           ) : null}
 
-          {/* 双语文本 */}
           <Text style={styles.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
           {paragraphs.map((p) => (
             <Pressable key={p.id} style={styles.paragraph} onPress={() => seekTo(p.startTimeMs)}>
@@ -323,6 +472,142 @@ function CourseScreen({
         </ScrollView>
       )}
     </View>
+  );
+}
+
+// ==================== 生词本 ====================
+
+const STATUS_LABEL: Record<VocabStatus, string> = { NEW: '生词', LEARNING: '学习中', MASTERED: '已掌握' };
+const NEXT_STATUS: Record<VocabStatus, VocabStatus> = { NEW: 'LEARNING', LEARNING: 'MASTERED', MASTERED: 'NEW' };
+
+function VocabularyScreen({ apiBase }: { apiBase: string }) {
+  const [items, setItems] = useState<VocabularyItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${apiBase}/api/vocabulary`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setItems((await res.json()) as VocabularyItem[]);
+    } catch {
+      /* 列表静默失败保留旧数据 */
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const cycleStatus = useCallback(
+    async (v: VocabularyItem) => {
+      const next = NEXT_STATUS[v.status];
+      setItems((prev) => prev.map((x) => (x.id === v.id ? { ...x, status: next } : x)));
+      await fetch(`${apiBase}/api/vocabulary/${v.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: next }) }).catch(() => undefined);
+    },
+    [apiBase]
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+      </View>
+    );
+  }
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(v) => v.id}
+      contentContainerStyle={{ padding: 16, gap: 10 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}
+      ListEmptyComponent={
+        <View style={styles.center}>
+          <Text style={styles.hintText}>暂无生词；在电脑端课程页点段落旁 🔤 加入</Text>
+        </View>
+      }
+      renderItem={({ item }) => (
+        <View style={styles.card}>
+          <View style={styles.vocabHead}>
+            <Text style={styles.vocabWord}>{item.word}</Text>
+            <Pressable onPress={() => void cycleStatus(item)}>
+              <Text style={[styles.vocabBadge, item.status === 'MASTERED' && styles.vocabMastered]}>{STATUS_LABEL[item.status]}</Text>
+            </Pressable>
+          </View>
+          {item.phonetic ? <Text style={styles.vocabPhonetic}>{item.phonetic}</Text> : null}
+          {item.definitionZh ? <Text style={styles.vocabDef}>{item.definitionZh}</Text> : null}
+          {item.exampleSentence ? <Text style={styles.vocabExample} numberOfLines={2}>“{item.exampleSentence}”</Text> : null}
+        </View>
+      )}
+    />
+  );
+}
+
+// ==================== 收藏 ====================
+
+function FavoritesScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCourse: (id: string) => void }) {
+  const [items, setItems] = useState<FavoriteItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${apiBase}/api/favorites`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setItems((await res.json()) as FavoriteItem[]);
+    } catch {
+      /* 静默 */
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+      </View>
+    );
+  }
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(f) => f.id}
+      contentContainerStyle={{ padding: 16, gap: 10 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}
+      ListEmptyComponent={
+        <View style={styles.center}>
+          <Text style={styles.hintText}>暂无收藏</Text>
+        </View>
+      }
+      renderItem={({ item }) => (
+        <View style={styles.card}>
+          {item.type === 'COURSE' ? (
+            <Text style={styles.cardTitle}>⭐ {item.courseTitle ?? '课程'}</Text>
+          ) : (
+            <>
+              <Text style={styles.textEn} numberOfLines={2}>
+                {item.excerptEn}
+              </Text>
+              <Text style={styles.textZh} numberOfLines={2}>
+                {item.excerptZh}
+              </Text>
+            </>
+          )}
+          <Text style={styles.cardMeta}>{new Date(item.createdAt).toLocaleString()}</Text>
+        </View>
+      )}
+    />
   );
 }
 
@@ -358,10 +643,23 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
   headerTitle: { fontSize: 18, fontWeight: '700' },
   backBtn: { color: '#4f46e5', fontSize: 15, fontWeight: '600' },
-  settingsBtn: { fontSize: 18 },
+  settingsBtn: { fontSize: 14, color: '#4f46e5', fontWeight: '600' },
+  tabContent: { flex: 1 },
+  tabBar: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e2e8f0', paddingBottom: 18, paddingTop: 6 },
+  tabItem: { flex: 1, alignItems: 'center', gap: 1 },
+  tabIcon: { fontSize: 19, opacity: 0.45 },
+  tabIconActive: { opacity: 1 },
+  tabLabel: { fontSize: 10, color: '#94a3b8' },
+  tabLabelActive: { color: '#4f46e5', fontWeight: '600' },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 14, gap: 4 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
   cardMeta: { fontSize: 12, color: '#64748b' },
+  continueCard: { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' },
+  continueLabel: { fontSize: 11, fontWeight: '700', color: '#4f46e5' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  gridCell: { width: '31%', backgroundColor: '#fff', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 12, gap: 4 },
+  gridLabel: { fontSize: 11, color: '#64748b' },
+  gridValue: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   detailTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 6 },
   playerCard: { backgroundColor: '#eef2ff', borderRadius: 12, padding: 14, gap: 8 },
@@ -378,7 +676,14 @@ const styles = StyleSheet.create({
   docRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   docName: { flex: 1, fontSize: 13, color: '#0f172a', marginRight: 8 },
   openLink: { color: '#4f46e5', fontSize: 13, fontWeight: '600' },
-  hintText: { fontSize: 12, color: '#94a3b8' },
+  vocabHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  vocabWord: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  vocabBadge: { fontSize: 11, color: '#4f46e5', backgroundColor: '#eef2ff', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', fontWeight: '600' },
+  vocabMastered: { color: '#059669', backgroundColor: '#ecfdf5' },
+  vocabPhonetic: { fontSize: 12, color: '#94a3b8' },
+  vocabDef: { fontSize: 13, color: '#475569' },
+  vocabExample: { fontSize: 12, fontStyle: 'italic', color: '#94a3b8' },
+  hintText: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
   errorText: { fontSize: 15, fontWeight: '600', color: '#dc2626' },
   retryBtn: { borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#cbd5e1', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#fff' },
   retryText: { color: '#4f46e5', fontWeight: '600', fontSize: 13 },
