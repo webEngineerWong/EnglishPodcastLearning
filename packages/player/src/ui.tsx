@@ -1,6 +1,6 @@
 /** 完整音频播放器 UI —— Web 与 Electron 共用 */
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Repeat, Repeat1, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Repeat, Repeat1, Volume2, VolumeX, X } from 'lucide-react';
 import { AudioEngine, type PlayerState } from './engine';
 import { RATES } from './react';
 import { formatTime } from './format';
@@ -27,12 +27,30 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
   const pct = duration > 0 ? (state.currentTimeMs / duration) * 100 : 0;
   const abActive = state.loopMode === 'ab' && isValidRange(state.loopRange?.startMs, state.loopRange?.endMs);
   const paragraphLoopActive = state.loopMode === 'paragraph';
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const draggingRef = React.useRef(false);
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (disabled || duration <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  const seekFromClientX = (clientX: number) => {
+    const el = barRef.current;
+    if (!el || duration <= 0) return;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     engine.seek(ratio * duration);
+  };
+
+  /** 进度条拖动跟手：pointerdown 即 seek，按住移动持续 seek，抬起结束 */
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || duration <= 0) return;
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    seekFromClientX(e.clientX);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    seekFromClientX(e.clientX);
+  };
+  const endDrag = () => {
+    draggingRef.current = false;
   };
 
   const cycleLoopMode = () => {
@@ -56,11 +74,17 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
     <div className={`select-none rounded-lg border border-border bg-card p-3 ${compact ? '' : 'md:p-4'}`}>
       {/* 进度条 */}
       <div
-        className="group relative mb-2 h-2 w-full cursor-pointer rounded-full bg-muted"
-        onClick={handleSeek}
+        ref={barRef}
+        className="group relative mb-2 h-2 w-full cursor-pointer touch-none rounded-full bg-muted"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
         role="slider"
         aria-label="seek"
-        aria-valuenow={Math.round(pct)}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(state.currentTimeMs)}
       >
         <div
           className="pointer-events-none absolute inset-y-0 rounded-full bg-primary"
@@ -161,7 +185,7 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
                 disabled={disabled}
                 title="清除循环"
               >
-                ✕
+                <X size={12} />
               </button>
             </>
           )}
