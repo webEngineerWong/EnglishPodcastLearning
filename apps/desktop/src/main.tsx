@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, Tabs, type DisplayMode } from '@elp/ui';
-import { LayoutDashboard, BookOpen, Download, BookMarked, Star, Play } from 'lucide-react';
+import { House, Library, FileUp, BookOpen, Bookmark, Moon, Sun, Headphones, Inbox, Search, Plus, FileText, Play } from 'lucide-react';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
 import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
@@ -65,11 +65,11 @@ function DesktopApp() {
   const { resolved, setMode } = useThemeCtl();
   const [route, setRoute] = useState<Route>({ page: 'dashboard' });
   const nav = [
-    { page: 'dashboard' as const, Icon: LayoutDashboard, label: t('dashboard') },
-    { page: 'courses' as const, Icon: BookOpen, label: t('courses') },
-    { page: 'import' as const, Icon: Download, label: t('importCenter') },
-    { page: 'vocabulary' as const, Icon: BookMarked, label: t('vocabulary') },
-    { page: 'favorites' as const, Icon: Star, label: t('favorites') }
+    { page: 'dashboard' as const, Icon: House, label: t('dashboard') },
+    { page: 'courses' as const, Icon: Library, label: t('courses') },
+    { page: 'import' as const, Icon: FileUp, label: t('importCenter') },
+    { page: 'vocabulary' as const, Icon: BookOpen, label: t('vocabulary') },
+    { page: 'favorites' as const, Icon: Bookmark, label: t('favorites') }
   ];
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -89,8 +89,8 @@ function DesktopApp() {
         </nav>
         <div className="flex items-center justify-between px-3 pb-4 text-[10px] text-muted-foreground">
           <span>Electron · macOS</span>
-          <button className="rounded px-1 hover:bg-accent" onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
-            {resolved === 'dark' ? '☀️' : '🌙'}
+          <button className="rounded px-1 hover:bg-accent" aria-label="theme" onClick={() => setMode(resolved === 'dark' ? 'light' : 'dark')}>
+            {resolved === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
           </button>
         </div>
       </aside>
@@ -260,13 +260,13 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t('courses')}</h1>
-        <Button onClick={() => setShowCreate(true)}>+ {t('createCourse')}</Button>
+        <Button onClick={() => setShowCreate(true)}><Plus size={15} />{t('createCourse')}</Button>
       </div>
       <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="mb-4 max-w-sm" />
       {!data ? (
         <Spinner />
       ) : data.items.length === 0 ? (
-        <EmptyState icon="📚" title={t('empty')} hint="去导入中心上传资料" />
+        <EmptyState title={t('empty')} hint="去导入中心上传资料" />
       ) : (
         <div className="space-y-2">
           {data.items.map((c) => (
@@ -276,15 +276,15 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenCourse(c.id)}>
                     <div className="truncate font-medium group-hover:text-primary">{c.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      {c.categoryName ? c.categoryName + ' · ' : ''}🎧 {c.audioCount} · L{c.difficulty}
+                      {c.categoryName ? c.categoryName + ' · ' : ''}{c.audioCount} 节 · L{c.difficulty}
                     </div>
                   </button>
                   <button
-                    className={c.favorite ? 'text-amber-400' : 'text-muted-foreground/40 hover:text-amber-400'}
+                    className={c.favorite ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary'}
                     title={t('favorites')}
                     onClick={() => toggleFav.mutate(c)}
                   >
-                    {c.favorite ? '★' : '☆'}
+                    <Bookmark size={16} className={c.favorite ? 'fill-current' : ''} />
                   </button>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
@@ -493,10 +493,10 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           className={course.favorite ? 'text-amber-400' : 'hover:text-amber-400'}
           onClick={() => void api.setCourseFavorite(id, !course.favorite).then(() => invalidate(['course', 'courses', 'favorites']))}
         >
-          {course.favorite ? '★ 已收藏' : '☆ 收藏课程'}
+          {course.favorite ? '已收藏' : '收藏课程'}
         </button>
         {state.loopMode === 'paragraph' && <Badge tone="warning">🔂 单句循环（L 键）</Badge>}
-        {audio && <span>🎧 {audio.originalName}</span>}
+        {audio && <span className="flex items-center gap-1"><Headphones size={12} />{audio.originalName}</span>}
       </div>
       {audio ? (
         <div className="mb-4">
@@ -523,7 +523,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
 
       {tab === 'subtitles' &&
         (paragraphs.length === 0 ? (
-          <EmptyState icon="📄" title={t('noTranscript')} />
+          <EmptyState title={t('noTranscript')} />
         ) : (
           <BilingualReader
             paragraphs={paragraphs}
@@ -551,7 +551,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="space-y-5">
           {materials.map((m) => (
             <div key={m.id}>
-              {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+              {m.title && <div className="flex items-center gap-1 text-xs font-semibold text-muted-foreground"><FileText size={12} />{m.title}</div>}
               <MaterialReader
                 paragraphs={m.paragraphs}
                 activeParagraphId={materialActiveIds[m.id] ?? null}
@@ -748,7 +748,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
       <h1 className="mb-4 text-xl font-semibold">{t('importCenter')}</h1>
       <Card className="mb-4">
         <CardContent className="py-8 text-center">
-          <div className="mb-2 text-3xl">📥</div>
+          <div className="mb-2 flex justify-center"><Inbox size={32} className="text-primary" /></div>
           <div className="text-sm">{t('importHint')}</div>
           <div className="mt-1 text-xs text-muted-foreground">同名的 PDF/MP3/双 SRT 自动匹配并合成双语课程（SRT 提供真实时间戳）</div>
           <Button className="mt-4" onClick={() => void pickAndImport()} disabled={busy}>
@@ -778,7 +778,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
               }}
               title="分次上传的 MP3/字幕/文本会按集数自动凑组"
             >
-              🔍 重新匹配
+              <Search size={13} className="mr-1 inline" /> 重新匹配
             </Button>
           </div>
           {jobsLoading ? (
@@ -786,7 +786,7 @@ function ImportPage({ initialJobId, onOpenCourse }: { initialJobId?: string; onO
               <Spinner />
             </div>
           ) : !jobs || jobs.items.length === 0 ? (
-            <EmptyState icon="📥" title={t('empty')} />
+            <EmptyState title={t('empty')} />
           ) : (
             <div className="space-y-2">
               {jobs.items.map((j) => (
@@ -1090,7 +1090,7 @@ function VocabularyPage() {
       {isLoading ? (
         <Spinner />
       ) : !data || data.length === 0 ? (
-        <EmptyState icon="🔤" title={t('empty')} hint="在课程详情页点击段落旁的 🔤 加入生词" />
+        <EmptyState title={t('empty')} hint="在课程详情页点击段落旁的 🔤 加入生词" />
       ) : (
         <div className="space-y-2">
           {data.map((v) => (
@@ -1170,7 +1170,7 @@ function FavoritesPage() {
       {isLoading ? (
         <Spinner />
       ) : !data || data.length === 0 ? (
-        <EmptyState icon="⭐" title={t('empty')} />
+        <EmptyState title={t('empty')} />
       ) : (
         <div className="space-y-2">
           {data.map((f) => (
@@ -1178,7 +1178,7 @@ function FavoritesPage() {
               <CardContent className="flex items-start justify-between gap-3 p-4">
                 <div className="min-w-0">
                   {f.type === 'COURSE' ? (
-                    <div className="text-sm font-medium">⭐ {f.courseTitle ?? '课程'}</div>
+                    <div className="flex items-center gap-1.5 text-sm font-medium"><Bookmark size={13} className="text-primary" />{f.courseTitle ?? '课程'}</div>
                   ) : (
                     <div className="text-sm">
                       <div className="line-clamp-2">{f.excerptEn}</div>
