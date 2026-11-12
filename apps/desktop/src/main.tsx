@@ -285,7 +285,7 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
         <div className="space-y-2">
           {data.items.map((c) => (
             <Card key={c.id} className="group overflow-hidden transition-shadow hover:shadow-md">
-              <CourseCover url={c.coverUrl ?? null} title={c.title} className="h-24 w-full text-xl" />
+              <CourseCover url={c.coverUrl ? api.baseUrl + c.coverUrl : null} title={c.title} className="h-24 w-full text-xl" />
               <CardContent className="p-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenCourse(c.id)}>

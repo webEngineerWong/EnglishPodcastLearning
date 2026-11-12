@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
 import clsx from 'clsx';
 import { Badge, Button, Icon, useI18n, useTheme } from '@elp/ui';
+import { MiniPlayer, useGlobalPlayer } from '@elp/player';
+import { assetUrl } from '@/lib/api';
 
 const NAV = [
   { href: '/', key: 'dashboard', name: 'dashboard' },
@@ -18,6 +20,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { t, locale, setLocale } = useI18n();
   const { resolved, setMode } = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
+  const player = useGlobalPlayer();
+  // 该课程详情页自身有完整播放器：Mini Player 只在其它页面显示
+  const showMini = player.track !== null && pathname !== `/courses/${player.track.courseId}`;
 
   return (
     <div className="flex min-h-screen">
@@ -81,7 +87,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <main className="flex-1 px-4 pb-16 pt-14 md:ml-56 md:px-8 md:pt-8">{children}</main>
+      <main className={clsx('flex-1 px-4 pt-14 md:ml-56 md:px-8 md:pt-8', showMini ? 'pb-28 md:pb-24' : 'pb-16')}>{children}</main>
+
+      {/* Mini Player：页面切换常驻（当前课程详情页隐藏） */}
+      {showMini && player.track && (
+        <MiniPlayer
+          engine={player.engine}
+          state={player.state}
+          track={player.track}
+          onClose={player.close}
+          onOpen={() => router.push(`/courses/${player.track!.courseId}`)}
+          className="md:left-[14.75rem]"
+        />
+      )}
     </div>
   );
 }
@@ -110,7 +128,7 @@ export function CourseCover({
 }) {
   const initial = title.trim().charAt(0).toUpperCase();
   return url ? (
-    <img src={url} alt="" className={clsx('shrink-0 object-cover', className)} loading="lazy" />
+    <img src={assetUrl(url)} alt="" className={clsx('shrink-0 object-cover', className)} loading="lazy" />
   ) : (
     <div
       className={clsx('flex shrink-0 select-none items-center justify-center bg-primary font-semibold text-primary-foreground', className)}

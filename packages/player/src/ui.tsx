@@ -2,7 +2,7 @@
 import React from 'react';
 import { Icon } from '@elp/icons';
 import { AudioEngine, type PlayerState } from './engine';
-import { RATES } from './react';
+import { RATES, type PlayerTrack } from './react';
 import { formatTime } from './format';
 import { isValidRange } from './loop';
 
@@ -232,6 +232,119 @@ export function AudioPlayer({ engine, state, title, onPrev, onNext, onTogglePara
           {state.error}
         </div>
       )}
+    </div>
+  );
+}
+
+// ==================== Mini Player（页面切换常驻底部条） ====================
+
+export interface MiniPlayerProps {
+  engine: AudioEngine;
+  state: PlayerState;
+  track: PlayerTrack;
+  /** 关闭（暂停并卸载当前曲目） */
+  onClose: () => void;
+  /** 点标题/封面跳回课程详情 */
+  onOpen?: () => void;
+  /** 定位类（Web 侧边栏 14rem / Desktop 12rem，由调用方传） */
+  className?: string;
+}
+
+/** 页面切换常驻的迷你播放条：封面 + 标题 + 拖动进度 + 播放控制，音频不中断 */
+export function MiniPlayer({ engine, state, track, onClose, onOpen, className }: MiniPlayerProps) {
+  const duration = state.durationMs;
+  const pct = duration > 0 ? (state.currentTimeMs / duration) * 100 : 0;
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const draggingRef = React.useRef(false);
+
+  const seekFromClientX = (clientX: number) => {
+    const el = barRef.current;
+    if (!el || duration <= 0) return;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    engine.seek(ratio * duration);
+  };
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (duration <= 0) return;
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    seekFromClientX(e.clientX);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    seekFromClientX(e.clientX);
+  };
+  const endDrag = () => {
+    draggingRef.current = false;
+  };
+
+  const ctrlBtn =
+    'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-foreground/80 transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-muted hover:text-foreground';
+
+  return (
+    <div
+      className={
+        'fixed inset-x-3 bottom-3 z-40 flex items-center gap-3 rounded-xl border border-border bg-card p-2 shadow-lg ' + (className ?? '')
+      }
+    >
+      {/* 封面/占位 + 标题（可点击回详情页） */}
+      <button
+        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        onClick={onOpen}
+        aria-label={`${track.courseTitle} - ${track.audioName}`}
+      >
+        {track.coverUrl ? (
+          <img src={track.coverUrl} alt="" className="h-10 w-10 shrink-0 rounded-md object-cover" />
+        ) : (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary" aria-hidden>
+            <Icon name="audio" size="md" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{track.courseTitle}</span>
+          <span className="block truncate text-xs text-muted-foreground">{track.audioName}</span>
+        </span>
+      </button>
+
+      {/* 进度条（窄屏隐藏，详情页内有完整进度条） */}
+      <div
+        ref={barRef}
+        className="group relative hidden h-2 w-40 cursor-pointer touch-none rounded-full bg-muted sm:block lg:w-64"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        role="slider"
+        aria-label="seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(state.currentTimeMs)}
+      >
+        <div className="pointer-events-none absolute inset-y-0 rounded-full bg-primary" style={{ width: `${pct}%` }} />
+        <div
+          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-foreground opacity-0 ring-2 ring-background transition-opacity group-hover:opacity-100"
+          style={{ left: `calc(${pct}% - 6px)` }}
+        />
+      </div>
+      <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">{formatTime(duration)}</span>
+
+      {/* 控制：±5s / 播放暂停 / 关闭 */}
+      <button className={ctrlBtn} onClick={() => engine.skip(-5)} aria-label="快退 5 秒">
+        <Icon name="rewind" size="md" />
+      </button>
+      <button
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors duration-150 ease-out motion-reduce:transition-none hover:bg-primary-hover active:scale-[0.98] motion-reduce:active:scale-none"
+        onClick={() => engine.toggle()}
+        aria-label={state.playing ? '暂停' : '播放'}
+      >
+        {state.loading ? <SpinnerDot /> : <Icon name={state.playing ? 'pause' : 'play'} size={18} fill="currentColor" />}
+      </button>
+      <button className={ctrlBtn} onClick={() => engine.skip(5)} aria-label="快进 5 秒">
+        <Icon name="fastForward" size="md" />
+      </button>
+      <button className={ctrlBtn} onClick={onClose} aria-label="关闭播放器">
+        <Icon name="close" size="md" />
+      </button>
     </div>
   );
 }

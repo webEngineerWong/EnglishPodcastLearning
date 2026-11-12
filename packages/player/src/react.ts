@@ -1,9 +1,98 @@
 /**
- * React 绑定层：useAudioEngine + usePlayerState。
- * UI 组件（AudioPlayer）在 ui.tsx 中，依赖最小化。
+ * React 绑定层：useAudioEngine + usePlayerState + 全局播放器 Provider。
+ * UI 组件（AudioPlayer / MiniPlayer）在 ui.tsx 中，依赖最小化。
  */
-import { useEffect, useRef, useState } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AudioEngine, type PlayerState } from './engine';
+
+// ==================== 全局播放器（Mini Player 页面切换常驻） ====================
+
+/** 当前装载的曲目元信息（UI 展示 + 页面内去重判断） */
+export interface PlayerTrack {
+  courseId: string;
+  courseTitle: string;
+  audioId: string;
+  audioName: string;
+  coverUrl?: string | null;
+}
+
+export interface HeartbeatInfo {
+  courseId: string;
+  audioAssetId: string;
+  positionMs: number;
+}
+
+interface GlobalPlayerCtx {
+  engine: AudioEngine;
+  state: PlayerState;
+  track: PlayerTrack | null;
+  /** 装载曲目：同一 audioId 已装载时不重载（跨页面返回继续播）；否则按 startMs 装载 */
+  loadTrack: (track: PlayerTrack, url: string, opts?: { startMs?: number; autoplay?: boolean }) => Promise<void>;
+  /** 关闭 Mini Player：暂停并卸载曲目 */
+  close: () => void;
+}
+
+const GlobalPlayerContext = createContext<GlobalPlayerCtx | null>(null);
+
+export function PlayerProvider({
+  children,
+  heartbeat
+}: {
+  children: ReactNode;
+  /** 播放心跳（学习时长统计）；由应用层注入具体 API */
+  heartbeat?: (info: HeartbeatInfo) => void;
+}) {
+  const engineRef = useRef<AudioEngine | null>(null);
+  if (!engineRef.current) engineRef.current = new AudioEngine();
+  const engine = engineRef.current;
+
+  const [track, setTrack] = useState<PlayerTrack | null>(null);
+  const [state, setState] = useState<PlayerState>(() => engine.getState());
+  useEffect(() => engine.subscribe(setState), [engine]);
+
+  const heartbeatRef = useRef(heartbeat);
+  heartbeatRef.current = heartbeat;
+  const trackRef = useRef<PlayerTrack | null>(track);
+  trackRef.current = track;
+
+  // 心跳：引擎 5s 节流 tick 交给应用层 API（曲目存在才上报）
+  useEffect(() => {
+    engine.onProgressTick = (positionMs) => {
+      const cur = trackRef.current;
+      if (!cur) return;
+      heartbeatRef.current?.({ courseId: cur.courseId, audioAssetId: cur.audioId, positionMs: Math.round(positionMs) });
+    };
+    return () => {
+      engine.onProgressTick = null;
+    };
+  }, [engine]);
+
+  const loadTrack = useCallback(
+    async (next: PlayerTrack, url: string, opts?: { startMs?: number; autoplay?: boolean }) => {
+      // 同一音频已装载（从详情页切走再回来 / Mini Player 点标题回详情页）：不重载，播放不中断
+      if (trackRef.current?.audioId === next.audioId && engine.getState().src === url) return;
+      setTrack(next);
+      await engine.load(url, { startMs: opts?.startMs ?? 0, autoplay: opts?.autoplay ?? true });
+    },
+    [engine]
+  );
+
+  const close = useCallback(() => {
+    engine.pause();
+    engine.setLoopMode('off');
+    setTrack(null);
+  }, [engine]);
+
+  const value = useMemo(() => ({ engine, state, track, loadTrack, close }), [engine, state, track, loadTrack, close]);
+  return createElement(GlobalPlayerContext.Provider, { value }, children);
+}
+
+export function useGlobalPlayer(): GlobalPlayerCtx {
+  const ctx = useContext(GlobalPlayerContext);
+  if (!ctx) throw new Error('useGlobalPlayer must be used within <PlayerProvider>');
+  return ctx;
+}
 
 export function useAudioEngine(): AudioEngine {
   const engineRef = useRef<AudioEngine | null>(null);

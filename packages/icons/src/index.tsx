@@ -80,7 +80,7 @@ export function Icon({
   size = 'md',
   className,
   strokeWidth = 1.75,
-  fill,
+  fill = 'none',
   'aria-hidden': ariaHidden = true
 }: {
   name: IconName;
