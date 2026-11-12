@@ -6,10 +6,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, type DisplayMode } from '@elp/ui';
+import { I18nProvider, ThemeProvider, useI18n, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Spinner, Input, Select, Modal, Tabs, type DisplayMode } from '@elp/ui';
 import { LayoutDashboard, BookOpen, Download, BookMarked, Star, Play } from 'lucide-react';
 import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
-import type { ImportJobDto, TranscriptParagraphDto } from '@elp/types';
+import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
 import { desktop } from './bridge';
 import './index.css';
@@ -346,6 +346,8 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
 
 // ==================== Course Detail ====================
 
+type CourseTab = 'subtitles' | 'materials' | 'notes';
+
 function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const { t } = useI18n();
   const api = useApiClient();
@@ -357,7 +359,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const activeIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<DisplayMode>('both');
   const [autoScrollOn, setAutoScrollOn] = useState(true);
-  const [materialsOpen, setMaterialsOpen] = useState(false);
+  const [tab, setTab] = useState<CourseTab>('subtitles');
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
   const audio = course?.audios?.[0];
@@ -444,6 +446,7 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
 
   // 学习资料面板 —— 按自身时间戳跟随音频滚动（hooks 必须在早退之前）
   const materials = course?.materials ?? [];
+  const notesDocs = useMemo(() => course?.notesDocuments ?? [], [course]);
   const materialActiveIds = useMemo(() => {
     const map: Record<string, string | null> = {};
     for (const m of materials) {
@@ -462,19 +465,27 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
         <Button variant="ghost" onClick={onBack}>
           ← {t('courses')}
         </Button>
-        <div className="flex overflow-hidden rounded-md border border-border">
-          {(
-            [
-              ['both', t('bilingual')],
-              ['en', t('onlyEn')],
-              ['zh', t('onlyZh')]
-            ] as [DisplayMode, string][]
-          ).map(([m, l]) => (
-            <button key={m} className={'px-2.5 py-1 text-xs ' + (mode === m ? 'bg-primary text-primary-foreground' : '')} onClick={() => setMode(m)}>
-              {l}
-            </button>
-          ))}
-        </div>
+        {/* 双语模式/自动滚动仅在实时字幕标签下显示（与 Web 端对齐） */}
+        {tab === 'subtitles' && (
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border border-border">
+              {(
+                [
+                  ['both', t('bilingual')],
+                  ['en', t('onlyEn')],
+                  ['zh', t('onlyZh')]
+                ] as [DisplayMode, string][]
+              ).map(([m, l]) => (
+                <button key={m} className={'px-2.5 py-1 text-xs ' + (mode === m ? 'bg-primary text-primary-foreground' : '')} onClick={() => setMode(m)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <Button variant={autoScrollOn ? 'active' : 'outline'} size="sm" onClick={() => setAutoScrollOn(!autoScrollOn)}>
+              ↕ {t('autoScroll')}
+            </Button>
+          </div>
+        )}
       </div>
       <h1 className="mb-2 text-xl font-semibold">{course.title}</h1>
       <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground">
@@ -496,64 +507,166 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           <CardContent className="py-5 text-center text-sm text-muted-foreground">{t('noAudio')}</CardContent>
         </Card>
       )}
-      {paragraphs.length === 0 ? (
-        <EmptyState icon="📄" title={t('noTranscript')} />
-      ) : (
-        <BilingualReader
-          paragraphs={paragraphs}
-          activeParagraphId={activeId}
-          mode={mode}
-          onParagraphClick={clickParagraph}
-          renderParagraphActions={(p) => (
-            <>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
-                ☆
-              </button>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
-                🔤
-              </button>
-              <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
-                ⧉
-              </button>
-            </>
-          )}
+
+      {/* 标签栏：实时字幕 | 学习资料 | 学习笔记（切标签不打断音频） */}
+      <div className="mb-4">
+        <Tabs<CourseTab>
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'subtitles', label: t('tabSubtitles') },
+            ...(materials.length > 0 ? [{ value: 'materials' as const, label: t('studyMaterials') }] : []),
+            ...(notesDocs.length > 0 || course.notes ? [{ value: 'notes' as const, label: t('notes') }] : [])
+          ]}
         />
+      </div>
+
+      {tab === 'subtitles' &&
+        (paragraphs.length === 0 ? (
+          <EmptyState icon="📄" title={t('noTranscript')} />
+        ) : (
+          <BilingualReader
+            paragraphs={paragraphs}
+            activeParagraphId={activeId}
+            mode={mode}
+            autoScroll={autoScrollOn}
+            onParagraphClick={clickParagraph}
+            renderParagraphActions={(p) => (
+              <>
+                <button className="rounded px-1 text-xs hover:bg-accent" title={t('favoriteSentence')} onClick={(e) => { e.stopPropagation(); void favParagraph(p); }}>
+                  ☆
+                </button>
+                <button className="rounded px-1 text-xs hover:bg-accent" title={t('addToVocab')} onClick={(e) => { e.stopPropagation(); void addToVocab(p); }}>
+                  🔤
+                </button>
+                <button className="rounded px-1 text-xs hover:bg-accent" title={t('copyText')} onClick={(e) => { e.stopPropagation(); void copyParagraph(p); }}>
+                  ⧉
+                </button>
+              </>
+            )}
+          />
+        ))}
+
+      {tab === 'materials' && (
+        <div className="space-y-5">
+          {materials.map((m) => (
+            <div key={m.id}>
+              {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
+              <MaterialReader
+                paragraphs={m.paragraphs}
+                activeParagraphId={materialActiveIds[m.id] ?? null}
+                followAudio={autoScrollOn}
+              />
+            </div>
+          ))}
+        </div>
       )}
 
-      {materials.length > 0 && (
-        <Card className="mt-4">
-          <CardContent className="p-0">
-            <button
-              className="flex w-full items-center justify-between px-4 py-3 text-sm text-muted-foreground hover:text-foreground"
-              onClick={() => setMaterialsOpen(!materialsOpen)}
-            >
-              <span>
-                📄 学习资料（{materials.map((m) => m.title).filter(Boolean).join('、')} · {materials.reduce((n, m) => n + m.paragraphs.length, 0)} 段）
-              </span>
-              <span>{materialsOpen ? '▲ 收起' : '▼ 展开'}</span>
-            </button>
-            {materialsOpen && (
-              <div className="space-y-5 border-t border-border px-4 py-4">
-                {materials.map((m) => (
-                  <div key={m.id}>
-                    {m.title && <div className="mb-2 text-xs font-semibold text-muted-foreground">📄 {m.title}</div>}
-                    <MaterialReader
-                      paragraphs={m.paragraphs}
-                      activeParagraphId={materialActiveIds[m.id] ?? null}
-                      followAudio={autoScrollOn}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+      {tab === 'notes' && <NotesPanel courseId={id} notes={course.notes} docs={notesDocs} />}
+
+    </div>
+  );
+}
+
+/** 学习笔记标签：iframe 内嵌 PDF 预览 + 上传/删除；「新标签页打开」由主进程转系统浏览器 */
+function NotesPanel({ courseId, notes, docs }: { courseId: string; notes?: string | null; docs: NotesDocumentDto[] }) {
+  const { t } = useI18n();
+  const api = useApiClient();
+  const invalidate = useInvalidate();
+  const [selectedId, setSelectedId] = useState<string | null>(docs[0]?.id ?? null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const doc = docs.find((d) => d.id === selectedId) ?? docs[0];
+  const src = doc ? (doc.url.startsWith('http') ? doc.url : api.baseUrl + doc.url) : undefined;
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      await api.uploadDocument(courseId, file, { role: 'notes' });
+      toast(`✅ ${file.name}`, true);
+      invalidate(['course', 'courses']);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : t('uploadFailed'));
+    }
+  };
+
+  const remove = async (d: NotesDocumentDto) => {
+    if (!confirm(t('deleteConfirm'))) return;
+    try {
+      await api.deleteDocument(d.id);
+      setSelectedId(null);
+      invalidate(['course', 'courses']);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : t('uploadFailed'));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {notes && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="mb-2 text-sm font-semibold">{t('notes')}</h3>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{notes}</p>
           </CardContent>
         </Card>
       )}
-      {course.notes && (
-        <Card className="mt-4">
-          <CardContent className="p-4">
-            <h3 className="mb-2 text-sm font-semibold">{t('notes')}</h3>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{course.notes}</p>
+      {docs.length > 0 && (
+        <Card>
+          <CardContent className="p-3">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {docs.length > 1 && (
+                <Select className="max-w-56" value={doc?.id ?? ''} onChange={(e) => setSelectedId(e.target.value)}>
+                  {docs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.originalName}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              <div className="flex-1" />
+              {/* target=_blank：主进程 setWindowOpenHandler 转系统浏览器打开 */}
+              <a
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent"
+              >
+                ↗ {t('openInNewTab')}
+              </a>
+              <a
+                href={src ? `${src}?download=1` : undefined}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent"
+              >
+                ⬇ {t('download')}
+              </a>
+              <Button size="sm" variant="outline" onClick={() => uploadRef.current?.click()}>
+                📤 {t('uploadNotes')}
+              </Button>
+              {doc && (
+                <Button size="sm" variant="destructive" onClick={() => void remove(doc)}>
+                  🗑 {t('delete')}
+                </Button>
+              )}
+              <input
+                ref={uploadRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  void upload(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+            {doc && src && (
+              <iframe
+                key={doc.id}
+                title={doc.originalName}
+                src={`${src}#view=FitH`}
+                className="w-full rounded-lg border border-border bg-card"
+                style={{ height: 'max(600px, calc(100vh - 16rem))' }}
+              />
+            )}
           </CardContent>
         </Card>
       )}
@@ -668,6 +781,7 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
   const api = useApiClient();
   const invalidate = useInvalidate();
   const [fileId, setFileId] = useState<string | null>(null);
+  const [notesPreviewId, setNotesPreviewId] = useState<string | null>(null);
   const [paragraphs, setParagraphs] = useState<DraftParagraph[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [editEn, setEditEn] = useState('');
@@ -680,6 +794,37 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
     setParagraphs(d.paragraphs as unknown as DraftParagraph[]);
     setEditing(null);
     setSelected(new Set());
+  };
+
+  /** 点击文件：学习笔记 → 预览说明；对照文本/字幕 → 段落草稿 */
+  const selectFile = (f: ImportJobDto['files'][number]) => {
+    if (f.kind === 'pdf' && f.docRole === 'notes') {
+      setNotesPreviewId(f.id);
+      setFileId(null);
+      setParagraphs([]);
+    } else {
+      setNotesPreviewId(null);
+      setFileId(f.id);
+      void loadDraft(f.id);
+    }
+  };
+
+  const changeRole = async (f: ImportJobDto['files'][number], role: 'source' | 'notes') => {
+    try {
+      await api.setImportFileRole(f.id, role);
+      invalidate(['importJob', 'importJobs']);
+      if (role === 'notes') {
+        setNotesPreviewId(f.id);
+        setFileId(null);
+        setParagraphs([]);
+      } else {
+        setNotesPreviewId(null);
+        setFileId(f.id);
+        await loadDraft(f.id);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '操作失败');
+    }
   };
 
   const op = async (fn: () => Promise<unknown>) => {
@@ -707,6 +852,10 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
     onSuccess: () => invalidate(['importJobs'])
   });
 
+  const textFiles = job.files.filter((f) => ['pdf', 'txt'].includes(f.kind) && f.docRole !== 'notes');
+  const notesFiles = job.files.filter((f) => f.kind === 'pdf' && f.docRole === 'notes');
+  const audioFiles = job.files.filter((f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind));
+
   return (
     <Card>
       <CardContent className="p-4">
@@ -714,19 +863,35 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
           <span className="text-sm font-semibold">{job.name ?? job.id}</span>
           <Badge tone={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning'}>{job.status}</Badge>
         </div>
+        <div className="mb-3 text-xs text-muted-foreground">
+          {textFiles.length} {t('textFilesUnit')} · {audioFiles.length} {t('audioFilesUnit')}
+          {notesFiles.length > 0 && <> · {notesFiles.length} {t('notesPdfUnit')}</>}
+        </div>
         <div className="space-y-1.5">
           {job.files.map((f) => (
             <div key={f.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
               <button
-                className={'min-w-0 truncate text-left ' + (fileId === f.id ? 'font-medium text-primary' : 'hover:underline')}
-                onClick={() => {
-                  setFileId(f.id);
-                  void loadDraft(f.id);
-                }}
+                className={'min-w-0 truncate text-left ' + (fileId === f.id || notesPreviewId === f.id ? 'font-medium text-primary' : 'hover:underline')}
+                onClick={() => selectFile(f)}
               >
                 {f.originalName} {f.paragraphCount != null && <span className="text-xs text-muted-foreground">· {f.paragraphCount} 段</span>}
               </button>
               <div className="flex shrink-0 items-center gap-2">
+                {f.kind === 'pdf' && (
+                  <>
+                    <Badge tone={f.docRole === 'notes' ? 'warning' : 'muted'}>
+                      {f.docRole === 'notes' ? `📝 ${t('notes')}` : t('roleSource')}
+                    </Badge>
+                    <Select
+                      className="h-7 w-28 text-xs"
+                      value={f.docRole ?? 'source'}
+                      onChange={(e) => void changeRole(f, e.target.value as 'source' | 'notes')}
+                    >
+                      <option value="source">{t('roleSource')}</option>
+                      <option value="notes">{t('notes')}</option>
+                    </Select>
+                  </>
+                )}
                 <Badge tone={f.status === 'FAILED' ? 'danger' : f.status === 'DUPLICATE' ? 'warning' : f.status === 'MATCHED' ? 'success' : 'muted'} title={f.status === 'SKIPPED' ? '已存储，未找到同集数的文本/字幕' : undefined}>
                   {f.status === 'SKIPPED' ? '待文本' : f.status}
                 </Badge>
@@ -739,6 +904,22 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
             </div>
           ))}
         </div>
+
+        {/* 学习笔记预览：不做段落校对，原样保存 */}
+        {notesPreviewId && (
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge tone="warning">📝 {t('notes')}</Badge>
+              <span className="text-sm text-muted-foreground">{t('notesPdfHint')}</span>
+            </div>
+            <iframe
+              title="notes-preview"
+              src={`${api.baseUrl}/api/import/files/${notesPreviewId}/raw#view=FitH`}
+              className="w-full rounded-lg border border-border bg-card"
+              style={{ height: 'max(480px, calc(100vh - 24rem))' }}
+            />
+          </div>
+        )}
 
         {fileId && paragraphs.length > 0 && job.status !== 'COMPLETED' && (
           <div className="mt-4 border-t border-border pt-4">
@@ -803,7 +984,20 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
                 );
               })}
             </div>
-            <div className="mt-4 flex items-end gap-2">
+          </div>
+        )}
+
+        {/* 发布（学习笔记不单独生成课程，附到对应课程） */}
+        {job.status !== 'COMPLETED' && job.files.length > 0 && (
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="mb-3 text-xs text-muted-foreground">
+              {textFiles.length > 0
+                ? `${t('publishHint')}，每个文本文件生成一个课程${notesFiles.length > 0 ? `；${t('publishNotesHint')}` : ''}`
+                : audioFiles.length > 0
+                  ? `将发布为仅音频课程（无文本），文本可稍后在课程页补传${notesFiles.length > 0 ? `；${t('publishNotesHint')}` : ''}`
+                  : t('notesOnlyCannotPublish')}
+            </div>
+            <div className="flex items-end gap-2">
               <div className="flex-1">
                 <Input placeholder="课程标题（可选）" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
@@ -811,9 +1005,6 @@ function JobPanel({ job, onOpenCourse }: { job: ImportJobDto; onOpenCourse: (id:
                 ✓ {t('confirm')} & {t('publish')}
               </Button>
             </div>
-            {job.files.every((f) => ['mp3', 'm4a', 'wav', 'mp4'].includes(f.kind)) && (
-              <div className="mt-3 text-xs text-muted-foreground">将发布为仅音频课程（无文本），文本可稍后在课程页补传</div>
-            )}
           </div>
         )}
       </CardContent>
