@@ -5,6 +5,7 @@ import type {
   CourseListItem,
   DashboardStatsDto,
   DocumentAssetDto,
+  DocumentRole,
   FavoriteDto,
   FavoriteType,
   HeartbeatPayload,
@@ -172,11 +173,16 @@ export class ApiClient {
     form.append('file', file);
     return this.request<AudioAssetDto>('POST', `/uploads/audio?courseId=${courseId}`, { body: form });
   }
-  uploadDocument(courseId: ID, file: File, kind?: 'pdf' | 'txt' | 'srt') {
+  /** 上传文档；role = 'notes' 时作为学习笔记 PDF 原样保存（不解析），默认 source */
+  uploadDocument(courseId: ID, file: File, opts?: { role?: DocumentRole }) {
     const form = new FormData();
     form.append('file', file);
-    const q = `?courseId=${courseId}${kind ? `&kind=${kind}` : ''}`;
-    return this.request<DocumentAssetDto>('POST', `/uploads/document${q}`, { body: form });
+    if (opts?.role) form.append('role', opts.role);
+    return this.request<DocumentAssetDto>('POST', `/uploads/document?courseId=${courseId}`, { body: form });
+  }
+  /** 删除学习笔记文档（仅允许 role = notes） */
+  deleteDocument(id: ID) {
+    return this.del<{ deleted: boolean; fileRemoved: boolean }>(`/documents/${id}`);
   }
   /** 直传到导入任务（自动判定类型并启动解析） */
   uploadToImport(files: File[]) {
@@ -210,6 +216,10 @@ export class ApiClient {
   /** 跨任务聚合：分次上传的资料按集数自动凑组 */
   rescan() {
     return this.post<{ grouped: number; jobs: string[] }>('/import/rescan');
+  }
+  /** 手动纠正导入文件类型（对照文本 ↔ 学习笔记）；改为 source 时后台自动重新解析 */
+  setImportFileRole(fileId: ID, role: DocumentRole) {
+    return this.patch<ImportJobDto>(`/import/files/${fileId}/role`, { docRole: role });
   }
 
   // ---------- 校对（基于 ImportFile 草稿，index 定位） ----------

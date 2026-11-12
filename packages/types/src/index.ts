@@ -40,6 +40,8 @@ export type ParagraphType = 'PARAGRAPH' | 'HEADING';
 export type ReviewStatus = 'PENDING' | 'EDITED' | 'CONFIRMED';
 export type TranscriptStatus = 'DRAFT' | 'REVIEWED' | 'PUBLISHED';
 export type CourseStatus = 'DRAFT' | 'PUBLISHED';
+/** 文档角色：source = 对照文本等原始文档（参与解析）；notes = 学习笔记（原样保存，不解析） */
+export type DocumentRole = 'source' | 'notes';
 export type VocabularyStatus = 'NEW' | 'LEARNING' | 'MASTERED';
 export type FavoriteType = 'COURSE' | 'PARAGRAPH';
 export type Difficulty = 1 | 2 | 3 | 4 | 5;
@@ -76,11 +78,20 @@ export interface DocumentAssetDto {
   id: ID;
   courseId?: ID | null;
   kind: 'pdf' | 'txt' | 'srt';
+  role?: DocumentRole;
   originalName: string;
   url?: string;
   sizeBytes: number;
   sha256?: string | null;
   createdAt: string;
+}
+
+/** 课程详情里的学习笔记文档（内嵌 PDF 预览用，url 为相对路径，前端用 assetUrl() 补全） */
+export interface NotesDocumentDto {
+  id: ID;
+  originalName: string;
+  url: string;
+  sizeBytes: number;
 }
 
 export interface TranscriptParagraphDto {
@@ -129,6 +140,8 @@ export interface CourseDetailDto extends CourseListItem {
   notes?: string | null;
   audios: AudioAssetDto[];
   documents: DocumentAssetDto[];
+  /** 学习笔记 PDF（role = notes 的 DocumentAsset），课程页内嵌预览 */
+  notesDocuments?: NotesDocumentDto[];
   /** 主字幕（左侧面板，点击跳转音频） */
   transcript?: TranscriptDto | null;
   /** 学习资料（右侧面板，跟随音频滚动）：对照 PDF / 笔记解析内容 */
@@ -198,6 +211,8 @@ export interface ImportFileDto {
   kind: ImportFileKind;
   originalName: string;
   status: ImportFileStatus;
+  /** 文档角色（仅 pdf 有意义）：自动判定，可由校对页手动纠正 */
+  docRole?: DocumentRole;
   error?: string | null;
   paragraphCount?: number | null;
   sizeBytes: number;

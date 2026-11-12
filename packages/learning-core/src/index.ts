@@ -349,3 +349,54 @@ export function localDayKey(d: Date = new Date()): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+// ---------- 文档角色判定（学习笔记 PDF） ----------
+
+/** 学习笔记文件名规则：含「笔记」或 notes（不区分大小写） */
+const NOTES_FILENAME_RE = /笔记|notes/i;
+
+/** 学习笔记内容关键词：前 2 页文本命中 ≥2 个即判为笔记 */
+export const NOTES_CONTENT_KEYWORDS: readonly string[] = ['导语', '重难点', '知识点总结', '用法总结'];
+
+/**
+ * 判定上传文档角色（纯函数，导入与课程两端共用）：
+ * 1. 文件名含「笔记」/ notes → notes；
+ * 2. 提供了前 2 页文本且命中 ≥2 个内容关键词 → notes；
+ * 3. 其余 → source。
+ * firstPagesText 传 null/undefined 表示只做文件名判断。
+ */
+export function detectNotesDocument(filename: string, firstPagesText?: string | null): 'source' | 'notes' {
+  if (NOTES_FILENAME_RE.test(filename)) return 'notes';
+  if (firstPagesText) {
+    const hits = NOTES_CONTENT_KEYWORDS.filter((k) => firstPagesText.includes(k)).length;
+    if (hits >= 2) return 'notes';
+  }
+  return 'source';
+}
+
+/** 文件名规范化（用于同名/同集匹配）：去扩展名、括号、空白与后缀词 */
+export function normalizeNameForMatch(name: string): string {
+  return name
+    .replace(/\.[^.]+$/, '')
+    .replace(/[（(]/g, '')
+    .replace(/[）)]/g, '')
+    .replace(/[\s_.-]+/g, '')
+    .replace(/对照文本|对照|翻译|文本|字幕|英文|中文|配套音频|音频|学习笔记/g, '')
+    .toLowerCase();
+}
+
+/** 提取文件名中的集数编号（Episode 12 / ep12 / 第12集 等），用于跨后缀精确匹配 */
+export function episodeKeyOf(name: string): string | null {
+  const m = name.match(/(?:episode|ep|第)\s*[_-]?\s*(\d{1,4})\s*集?/i);
+  return m ? `ep${m[1]}` : null;
+}
+
+/** 文件名匹配：规范化相等 或 集数编号相等（episode1 不会误配 episode10-13） */
+export function nameMatches(a: string, b: string): boolean {
+  const nA = normalizeNameForMatch(a);
+  const nB = normalizeNameForMatch(b);
+  if (nA && nB && nA === nB) return true;
+  const eA = episodeKeyOf(a);
+  const eB = episodeKeyOf(b);
+  return Boolean(eA && eB && eA === eB);
+}
