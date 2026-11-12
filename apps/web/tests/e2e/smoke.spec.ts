@@ -3,8 +3,10 @@ import { expect, test } from '@playwright/test';
 test.describe('学习平台冒烟', () => {
   test('Dashboard 加载并显示统计', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: '学习台' })).toBeVisible();
+    // 现代化后的欢迎标题（时段问候）
+    await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)|夜深了/ })).toBeVisible();
     await expect(page.getByText('累计学习')).toBeVisible();
+    await expect(page.getByText('最近学习')).toBeVisible();
   });
 
   test('课程列表加载', async ({ page }) => {
