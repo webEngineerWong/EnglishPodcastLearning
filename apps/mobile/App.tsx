@@ -20,6 +20,7 @@ import {
   View
 } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import * as Clipboard from 'expo-clipboard';
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -44,7 +45,10 @@ type Paragraph = {
   textEn?: string | null;
   textZh?: string | null;
   startTimeMs?: number | null;
+  endTimeMs?: number | null;
 };
+
+const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
 type NotesDocument = { id: string; originalName: string; url: string; sizeBytes: number };
 
@@ -149,6 +153,14 @@ function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** 段落循环的结束兜底：下一段的开始时间（毫秒）；没有则返回 NaN 表示不循环 */
+function findNextStart(paragraphs: Paragraph[], order: number): number {
+  for (const p of paragraphs) {
+    if (p.order > order && typeof p.startTimeMs === 'number') return p.startTimeMs;
+  }
+  return NaN;
 }
 
 /** 当前播放段落：取最后一个 startTimeMs <= t 的段（与 Web 端 findActiveParagraph 语义一致） */
@@ -463,6 +475,13 @@ function CourseScreen({
   const [followAudio, setFollowAudio] = useState(true);
   const [fontIdx, setFontIdx] = useState(1); // 0小 1中 2大
   const [scrubSec, setScrubSec] = useState<number | null>(null);
+  const [rateIdx, setRateIdx] = useState(1); // PLAYBACK_RATES 下标，默认 1x
+  const [loopParagraph, setLoopParagraph] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toast = useCallback((msg: string, ok = false) => {
+    setToastMsg((ok ? '✅ ' : '') + msg);
+    setTimeout(() => setToastMsg(null), 2200);
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(FONT_SIZE_KEY).then((v) => {
@@ -511,6 +530,7 @@ function CourseScreen({
       player.replace({ uri: audioUrl });
       const resume = resumeMs ?? detail.lastPositionMs ?? 0;
       if (resume > 5000) void player.seekTo(resume / 1000);
+      void player.setPlaybackRate(PLAYBACK_RATES[rateIdx]);
       // 锁屏 / 灵动岛 / 控制中心：标题、所属课程、封面与进度控制
       const bundledIcon = Image.resolveAssetSource(require('./assets/icon.png'));
       const artworkUrl: string | undefined = detail.coverUrl ?? bundledIcon?.uri ?? undefined;
@@ -550,6 +570,53 @@ function CourseScreen({
     [player]
   );
 
+  const changeRate = useCallback(() => {
+    setRateIdx((prev) => {
+      const next = (prev + 1) % PLAYBACK_RATES.length;
+      void player.setPlaybackRate(PLAYBACK_RATES[next]);
+      return next;
+    });
+  }, [player]);
+
+  const copyParagraph = useCallback((p: Paragraph) => {
+    const text = [p.textEn, p.textZh].filter(Boolean).join('\n');
+    if (!text) return;
+    void Clipboard.setStringAsync(text);
+    toast('已复制');
+  }, []);
+
+  const favParagraph = useCallback(
+    (p: Paragraph) => {
+      void fetch(`${apiBase}/api/favorites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'PARAGRAPH', paragraphId: p.id })
+      })
+        .then((r) => toast(r.ok ? '已收藏' : '收藏失败', r.ok))
+        .catch(() => toast('收藏失败'));
+    },
+    [apiBase]
+  );
+
+  const addVocab = useCallback(
+    (p: Paragraph) => {
+      const words = (p.textEn ?? '')
+        .replace(/[^A-Za-z'\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 3);
+      const word = words[0];
+      if (!word) return;
+      void fetch(`${apiBase}/api/vocabulary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word, exampleSentence: p.textEn ?? '', sourceCourseId: courseId, sourceParagraphId: p.id })
+      })
+        .then((r) => toast(r.ok ? '生词 +' + word : '加入生词失败', r.ok))
+        .catch(() => toast('加入生词失败'));
+    },
+    [apiBase, courseId]
+  );
+
   const openNotesDoc = useCallback(
     (doc: NotesDocument) => {
       const url = doc.url.startsWith('http') ? doc.url : apiBase + doc.url;
@@ -569,6 +636,18 @@ function CourseScreen({
       setActiveId(id);
     }
   }, [status.currentTime, status.playing, paragraphs]);
+
+  // 单句循环：高亮段有完整时间戳时，越过末尾回跳段首
+  useEffect(() => {
+    if (!loopParagraph || !status.playing || !activeId) return;
+    const p = paragraphs.find((x) => x.id === activeId);
+    if (!p || typeof p.startTimeMs !== 'number') return;
+    const startSec = p.startTimeMs / 1000;
+    const endSec = (p.endTimeMs ?? findNextStart(paragraphs, p.order)) / 1000;
+    if (!Number.isFinite(endSec) || endSec <= startSec) return;
+    const t = status.currentTime ?? 0;
+    if (t > endSec + 0.15) void player.seekTo(startSec);
+  }, [status.currentTime, status.playing, status, loopParagraph, activeId, paragraphs, player]);
 
   // 自动跟随：高亮段滚动到双语滚动区上部（FlatList 自管 item 位置，避免坐标失效）
   useEffect(() => {
@@ -703,7 +782,16 @@ function CourseScreen({
               <Text style={s.hintText}>本课程暂无文本</Text>
             }
             renderItem={({ item: p }) => (
-              <ParagraphRow paragraph={p} active={p.id === activeId} fontEn={font.en} fontZh={font.zh} onPress={() => seekTo(p.startTimeMs)} />
+              <ParagraphRow
+                paragraph={p}
+                active={p.id === activeId}
+                fontEn={font.en}
+                fontZh={font.zh}
+                onPress={() => seekTo(p.startTimeMs)}
+                onCopy={() => copyParagraph(p)}
+                onFav={() => favParagraph(p)}
+                onVocab={() => addVocab(p)}
+              />
             )}
           />
         </>
@@ -718,24 +806,51 @@ const ParagraphRow = React.memo(function ParagraphRow({
   active,
   fontEn,
   fontZh,
-  onPress
+  onPress,
+  onCopy,
+  onFav,
+  onVocab
 }: {
   paragraph: Paragraph;
   active: boolean;
   fontEn: number;
   fontZh: number;
   onPress: () => void;
+  onCopy: () => void;
+  onFav: () => void;
+  onVocab: () => void;
 }) {
     const pal = usePalette();
   const s = useMemo(() => makeStyles(pal), [pal]);
 
   return (
     <Pressable style={[s.paragraph, active && s.paragraphActive]} onPress={onPress}>
-      {p.textEn ? <Text style={[s.textEn, { fontSize: fontEn }, active && s.textEnActive]}>{p.textEn}</Text> : null}
-      {p.textZh ? <Text style={[s.textZh, { fontSize: fontZh }]}>{p.textZh}</Text> : null}
-      <Text style={s.timestamp}>{typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}</Text>
+      <View style={stylesPara.row}>
+        <View style={stylesPara.body}>
+          {p.textEn ? <Text style={[s.textEn, { fontSize: fontEn }, active && s.textEnActive]}>{p.textEn}</Text> : null}
+          {p.textZh ? <Text style={[s.textZh, { fontSize: fontZh }]}>{p.textZh}</Text> : null}
+          <Text style={s.timestamp}>{typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}</Text>
+        </View>
+        <View style={stylesPara.actions}>
+          <Pressable hitSlop={6} onPress={(e) => { e.stopPropagation(); onCopy(); }}>
+            <Text style={s.actionBtn}>⧉</Text>
+          </Pressable>
+          <Pressable hitSlop={6} onPress={(e) => { e.stopPropagation(); onFav(); }}>
+            <Text style={s.actionBtn}>☆</Text>
+          </Pressable>
+          <Pressable hitSlop={6} onPress={(e) => { e.stopPropagation(); onVocab(); }}>
+            <Text style={s.actionBtn}>🔤</Text>
+          </Pressable>
+        </View>
+      </View>
     </Pressable>
   );
+});
+
+const stylesPara = StyleSheet.create({
+  row: { flexDirection: 'row', gap: 8 },
+  body: { flex: 1, gap: 4 },
+  actions: { alignItems: 'flex-end', gap: 12, paddingTop: 2 }
 });
 
 // ==================== 生词本 ====================
@@ -970,5 +1085,8 @@ const makeStyles = (c: Palette) =>
   retryText: { color: c.primary, fontWeight: '600', fontSize: 13 },
   input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginTop: 8, backgroundColor: c.card },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalCard: { width: '100%', backgroundColor: c.card, borderRadius: 14, padding: 18 }
+  modalCard: { width: '100%', backgroundColor: c.card, borderRadius: 14, padding: 18 },
+  toastBar: { position: 'absolute', bottom: 28, alignSelf: 'center', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: c.text, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  toastText: { color: c.bg, fontSize: 13, fontWeight: '600' },
+  actionBtn: { fontSize: 14, color: c.faint }
   });
