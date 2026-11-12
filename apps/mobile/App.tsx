@@ -17,7 +17,6 @@ import {
   TextInput,
   View
 } from 'react-native';
-import type { ScrollViewInstance } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -395,8 +394,7 @@ function CourseScreen({
   const seekedOnceRef = useRef(false);
   const currentTimeRef = useRef(0);
   currentTimeRef.current = status.currentTime ?? 0;
-  const scrollRef = useRef<ScrollViewInstance | null>(null);
-  const paragraphYs = useRef<Map<string, number>>(new Map());
+  const listRef = useRef<FlatList<Paragraph> | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [followAudio, setFollowAudio] = useState(true);
@@ -502,14 +500,14 @@ function CourseScreen({
     }
   }, [status.currentTime, status.playing, paragraphs]);
 
-  // 自动跟随：高亮段滚动到双语滚动区上部
+  // 自动跟随：高亮段滚动到双语滚动区上部（FlatList 自管 item 位置，避免坐标失效）
   useEffect(() => {
     if (!followAudio || !activeId) return;
-    const y = paragraphYs.current.get(activeId);
-    if (typeof y === 'number') {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 48), animated: true });
+    const index = paragraphs.findIndex((p) => p.id === activeId);
+    if (index >= 0) {
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.12, animated: true });
     }
-  }, [activeId, followAudio]);
+  }, [activeId, followAudio, paragraphs]);
 
   const font = FONT_SIZES[fontIdx];
 
@@ -614,37 +612,58 @@ function CourseScreen({
           </ScrollView>
 
           {/* ===== 双语字幕独立滚动区：高度 = 屏幕减去上方固定播放区 ===== */}
-          <ScrollView
-            ref={scrollRef}
+          <FlatList
+            ref={listRef}
+            data={paragraphs}
+            keyExtractor={(p) => p.id}
             style={styles.subtitleZone}
             contentContainerStyle={{ padding: 16, paddingTop: 12, paddingBottom: 24, gap: 10 }}
-          >
-            {paragraphs.map((p) => {
-              const isActive = p.id === activeId;
-              return (
-                <Pressable
-                  key={p.id}
-                  style={[styles.paragraph, isActive && styles.paragraphActive]}
-                  onLayout={(e) => paragraphYs.current.set(p.id, e.nativeEvent.layout.y)}
-                  onPress={() => seekTo(p.startTimeMs)}
-                >
-                  {p.textEn ? (
-                    <Text style={[styles.textEn, { fontSize: font.en }, isActive && styles.textEnActive]}>{p.textEn}</Text>
-                  ) : null}
-                  {p.textZh ? <Text style={[styles.textZh, { fontSize: font.zh }]}>{p.textZh}</Text> : null}
-                  <Text style={styles.timestamp}>
-                    {typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            {paragraphs.length === 0 && <Text style={styles.hintText}>本课程暂无文本</Text>}
-          </ScrollView>
+            onScrollToIndexFailed={(info) => {
+              // item 未渲染时先按平均高度粗滚，再补一次精确滚动
+              listRef.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index - 48), animated: false });
+              setTimeout(() => {
+                try {
+                  listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.12, animated: true });
+                } catch {
+                  /* 忽略 */
+                }
+              }, 120);
+            }}
+            ListEmptyComponent={
+              <Text style={styles.hintText}>本课程暂无文本</Text>
+            }
+            renderItem={({ item: p }) => (
+              <ParagraphRow paragraph={p} active={p.id === activeId} fontEn={font.en} fontZh={font.zh} onPress={() => seekTo(p.startTimeMs)} />
+            )}
+          />
         </>
       )}
     </View>
   );
 }
+
+/** 双语段落行（memo：避免每次进度 tick 全列表重渲） */
+const ParagraphRow = React.memo(function ParagraphRow({
+  paragraph: p,
+  active,
+  fontEn,
+  fontZh,
+  onPress
+}: {
+  paragraph: Paragraph;
+  active: boolean;
+  fontEn: number;
+  fontZh: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.paragraph, active && styles.paragraphActive]} onPress={onPress}>
+      {p.textEn ? <Text style={[styles.textEn, { fontSize: fontEn }, active && styles.textEnActive]}>{p.textEn}</Text> : null}
+      {p.textZh ? <Text style={[styles.textZh, { fontSize: fontZh }]}>{p.textZh}</Text> : null}
+      <Text style={styles.timestamp}>{typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}</Text>
+    </Pressable>
+  );
+});
 
 // ==================== 生词本 ====================
 
