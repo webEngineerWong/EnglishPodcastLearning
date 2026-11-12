@@ -3,7 +3,7 @@
  * 与 Web/Electron 共用同一 NestJS API：学习台 / 课程 / 音频播放 / 双语文本 / 生词本 / 收藏 / 学习笔记打开。
  * 音频会话设为 playsInSilentMode（静音键不影响播放）+ 后台播放。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -16,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   View
 } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -93,6 +94,56 @@ type FavoriteItem = {
   createdAt: string;
 };
 
+// ==================== 主题色板（与 Web globals.css tokens 对齐，跟随系统深色模式） ====================
+
+const PALETTES = {
+  light: {
+    bg: '#f8fafc',
+    card: '#ffffff',
+    border: '#e2e8f0',
+    text: '#0f172a',
+    sub: '#64748b',
+    faint: '#94a3b8',
+    primary: '#4f46e5',
+    primaryBg: '#eef2ff',
+    primaryBorder: '#c7d2fe',
+    primaryText: '#312e81',
+    onPrimary: '#ffffff',
+    danger: '#dc2626',
+    mutedBg: '#f1f5f9',
+    success: '#059669',
+    successBg: '#ecfdf5',
+    overlay: 'rgba(15,23,42,0.45)',
+    barStyle: 'dark-content' as const
+  },
+  dark: {
+    bg: '#0f1420',
+    card: '#171d2b',
+    border: '#2a3245',
+    text: '#e2e8f0',
+    sub: '#94a3b8',
+    faint: '#64748b',
+    primary: '#818cf8',
+    primaryBg: '#232a44',
+    primaryBorder: '#3b4470',
+    primaryText: '#c7d2fe',
+    onPrimary: '#0f1420',
+    danger: '#f87171',
+    mutedBg: '#1e2537',
+    success: '#34d399',
+    successBg: '#0d2b22',
+    overlay: 'rgba(0,0,0,0.55)',
+    barStyle: 'light-content' as const
+  }
+};
+
+type Palette = Omit<(typeof PALETTES)['light'], 'barStyle'> & { barStyle: 'dark-content' | 'light-content' };
+
+function usePalette(): Palette {
+  const scheme = useColorScheme();
+  return scheme === 'dark' ? PALETTES.dark : PALETTES.light;
+}
+
 function formatTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '0:00';
   const s = Math.floor(ms / 1000);
@@ -131,6 +182,8 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>('courses');
   const [openCourseId, setOpenCourseId] = useState<string | null>(null);
   const [resumeMs, setResumeMs] = useState<number | undefined>(undefined);
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
 
   useEffect(() => {
     // 静音键下仍可播放（学习类 App 标准行为）+ 锁屏/后台继续播放
@@ -171,8 +224,8 @@ export default function App() {
 
   if (!apiBase) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+      <View style={[s.container, s.center]}>
+        <ActivityIndicator size="large" color={pal.primary} />
       </View>
     );
   }
@@ -184,8 +237,8 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="default" />
+    <View style={s.container}>
+      <StatusBar barStyle={pal.barStyle} />
       {openCourseId ? (
         <CourseScreen
           key={openCourseId}
@@ -196,25 +249,25 @@ export default function App() {
           onOpenSettings={() => setShowSettings(true)}
         />
       ) : (
-        <View style={styles.screen}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>{TABS.find((t) => t.key === tab)?.label ?? '英语学习'}</Text>
+        <View style={s.screen}>
+          <View style={s.header}>
+            <Text style={s.headerTitle}>{TABS.find((t) => t.key === tab)?.label ?? '英语学习'}</Text>
             <Pressable onPress={() => setShowSettings(true)} hitSlop={8}>
-              <Text style={styles.settingsBtn}>⚙️ 设置</Text>
+              <Text style={s.settingsBtn}>⚙️ 设置</Text>
             </Pressable>
           </View>
-          <View style={styles.tabContent}>
+          <View style={s.tabContent}>
             {tab === 'dashboard' && <DashboardScreen apiBase={apiBase} onOpenCourse={onOpenCourse} />}
             {tab === 'courses' && <CourseListScreen apiBase={apiBase} onOpen={(c) => setOpenCourseId(c.id)} />}
             {tab === 'vocabulary' && <VocabularyScreen apiBase={apiBase} />}
             {tab === 'favorites' && <FavoritesScreen apiBase={apiBase} />}
           </View>
           {/* 底部导航（对齐 Web/Electron 菜单） */}
-          <View style={styles.tabBar}>
+          <View style={s.tabBar}>
             {TABS.map((t) => (
-              <Pressable key={t.key} style={styles.tabItem} onPress={() => setTab(t.key)}>
-                <Text style={[styles.tabIcon, tab === t.key && styles.tabIconActive]}>{t.icon}</Text>
-                <Text style={[styles.tabLabel, tab === t.key && styles.tabLabelActive]}>{t.label}</Text>
+              <Pressable key={t.key} style={s.tabItem} onPress={() => setTab(t.key)}>
+                <Text style={[s.tabIcon, tab === t.key && s.tabIconActive]}>{t.icon}</Text>
+                <Text style={[s.tabLabel, tab === t.key && s.tabLabelActive]}>{t.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -228,6 +281,9 @@ export default function App() {
 // ==================== 学习台 ====================
 
 function DashboardScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCourse: (id: string) => void }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -252,16 +308,16 @@ function DashboardScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCou
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>无法连接 API（{error}）</Text>
-        <Text style={styles.hintText}>{apiBase}</Text>
+      <View style={s.center}>
+        <Text style={s.errorText}>无法连接 API（{error}）</Text>
+        <Text style={s.hintText}>{apiBase}</Text>
       </View>
     );
   }
   if (!stats) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={pal.primary} />
       </View>
     );
   }
@@ -278,21 +334,21 @@ function DashboardScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCou
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 12 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}>
       {stats.continueLearning && (
-        <Pressable style={[styles.card, styles.continueCard]} onPress={() => onOpenCourse(stats.continueLearning!.courseId)}>
-          <Text style={styles.continueLabel}>▶ 继续上次学习</Text>
-          <Text style={styles.cardTitle} numberOfLines={1}>
+        <Pressable style={[s.card, s.continueCard]} onPress={() => onOpenCourse(stats.continueLearning!.courseId)}>
+          <Text style={s.continueLabel}>▶ 继续上次学习</Text>
+          <Text style={s.cardTitle} numberOfLines={1}>
             {stats.continueLearning.title}
           </Text>
-          <Text style={styles.cardMeta}>
+          <Text style={s.cardMeta}>
             {stats.continueLearning.audioName ?? ''} · 上次 {formatTime(stats.continueLearning.positionMs)}
           </Text>
         </Pressable>
       )}
-      <View style={styles.grid}>
+      <View style={s.grid}>
         {cells.map(([label, value]) => (
-          <View key={label} style={styles.gridCell}>
-            <Text style={styles.gridLabel}>{label}</Text>
-            <Text style={styles.gridValue}>{value}</Text>
+          <View key={label} style={s.gridCell}>
+            <Text style={s.gridLabel}>{label}</Text>
+            <Text style={s.gridValue}>{value}</Text>
           </View>
         ))}
       </View>
@@ -303,6 +359,8 @@ function DashboardScreen({ apiBase, onOpenCourse }: { apiBase: string; onOpenCou
 // ==================== 课程列表 ====================
 
 function CourseListScreen({ apiBase, onOpen }: { apiBase: string; onOpen: (c: CourseListItem) => void }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -327,18 +385,18 @@ function CourseListScreen({ apiBase, onOpen }: { apiBase: string; onOpen: (c: Co
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={pal.primary} />
       </View>
     );
   }
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>无法连接 API</Text>
-        <Text style={styles.hintText}>{error}</Text>
-        <Pressable style={styles.retryBtn} onPress={() => void load()}>
-          <Text style={styles.retryText}>重试</Text>
+      <View style={s.center}>
+        <Text style={s.errorText}>无法连接 API</Text>
+        <Text style={s.hintText}>{error}</Text>
+        <Pressable style={s.retryBtn} onPress={() => void load()}>
+          <Text style={s.retryText}>重试</Text>
         </Pressable>
       </View>
     );
@@ -350,16 +408,16 @@ function CourseListScreen({ apiBase, onOpen }: { apiBase: string; onOpen: (c: Co
       contentContainerStyle={{ padding: 16, gap: 10 }}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
       ListEmptyComponent={
-        <View style={styles.center}>
-          <Text style={styles.hintText}>暂无课程，先在电脑端导入</Text>
+        <View style={s.center}>
+          <Text style={s.hintText}>暂无课程，先在电脑端导入</Text>
         </View>
       }
       renderItem={({ item }) => (
-        <Pressable style={styles.card} onPress={() => onOpen(item)}>
-          <Text style={styles.cardTitle} numberOfLines={2}>
+        <Pressable style={s.card} onPress={() => onOpen(item)}>
+          <Text style={s.cardTitle} numberOfLines={2}>
             {item.title}
           </Text>
-          <Text style={styles.cardMeta}>
+          <Text style={s.cardMeta}>
             🎧 {item.audioCount} · L{item.difficulty}
             {item.lastPositionMs ? ` · 上次 ${formatTime(item.lastPositionMs)}` : ''}
           </Text>
@@ -390,6 +448,8 @@ function CourseScreen({
   onBack: () => void;
   onOpenSettings: () => void;
 }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const player = useAudioPlayer(null);
@@ -522,33 +582,33 @@ function CourseScreen({
   const font = FONT_SIZES[fontIdx];
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
+    <View style={s.screen}>
+      <View style={s.header}>
         <Pressable onPress={onBack} hitSlop={8}>
-          <Text style={styles.backBtn}>← 课程</Text>
+          <Text style={s.backBtn}>← 课程</Text>
         </Pressable>
         <Pressable onPress={onOpenSettings} hitSlop={8}>
-          <Text style={styles.settingsBtn}>⚙️</Text>
+          <Text style={s.settingsBtn}>⚙️</Text>
         </Pressable>
       </View>
       {error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>加载失败</Text>
-          <Text style={styles.hintText}>{error}</Text>
+        <View style={s.center}>
+          <Text style={s.errorText}>加载失败</Text>
+          <Text style={s.hintText}>{error}</Text>
         </View>
       ) : !detail ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#4f46e5" />
+        <View style={s.center}>
+          <ActivityIndicator size="large" color={pal.primary} />
         </View>
       ) : (
         <>
           {/* ===== 固定区：标题 / 播放器（进度条） / 笔记 / 备注（不随字幕滚动） ===== */}
-          <ScrollView style={styles.fixedZone} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 6, gap: 10 }}>
-            <Text style={styles.detailTitle}>{detail.title}</Text>
+          <ScrollView style={s.fixedZone} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 6, gap: 10 }}>
+            <Text style={s.detailTitle}>{detail.title}</Text>
 
             {audioUrl ? (
-              <View style={styles.playerCard}>
-                <Text numberOfLines={1} style={styles.playerTitle}>
+              <View style={s.playerCard}>
+                <Text numberOfLines={1} style={s.playerTitle}>
                   🎧 {detail.audios[0].originalName}
                 </Text>
                 {/* 音轨进度条（可拖动） */}
@@ -566,59 +626,59 @@ function CourseScreen({
                   maximumTrackTintColor="#c7d2fe"
                   thumbTintColor="#4f46e5"
                 />
-                <View style={styles.playerRow}>
-                  <Pressable style={styles.playBtn} onPress={() => (status.playing ? player.pause() : void player.play())}>
-                    <Text style={styles.playBtnText}>{status.playing ? '⏸ 暂停' : '▶ 播放'}</Text>
+                <View style={s.playerRow}>
+                  <Pressable style={s.playBtn} onPress={() => (status.playing ? player.pause() : void player.play())}>
+                    <Text style={s.playBtnText}>{status.playing ? '⏸ 暂停' : '▶ 播放'}</Text>
                   </Pressable>
-                  <Text style={styles.timeText}>
+                  <Text style={s.timeText}>
                     {formatTime((scrubSec ?? status.currentTime ?? 0) * 1000)} / {formatTime((status.duration ?? 0) * 1000)}
                   </Text>
                   <View style={{ flex: 1 }} />
                   <Pressable onPress={() => void player.seekTo(Math.max(0, (status.currentTime ?? 0) - 15))}>
-                    <Text style={styles.timeText}>«15s</Text>
+                    <Text style={s.timeText}>«15s</Text>
                   </Pressable>
                 </View>
-                <View style={styles.playerRow}>
-                  <Pressable style={styles.smallBtn} onPress={() => changeFont(-1)}>
-                    <Text style={styles.smallBtnText}>A−</Text>
+                <View style={s.playerRow}>
+                  <Pressable style={s.smallBtn} onPress={() => changeFont(-1)}>
+                    <Text style={s.smallBtnText}>A−</Text>
                   </Pressable>
-                  <Text style={styles.timeText}>{font.label}</Text>
-                  <Pressable style={styles.smallBtn} onPress={() => changeFont(1)}>
-                    <Text style={styles.smallBtnText}>A+</Text>
+                  <Text style={s.timeText}>{font.label}</Text>
+                  <Pressable style={s.smallBtn} onPress={() => changeFont(1)}>
+                    <Text style={s.smallBtnText}>A+</Text>
                   </Pressable>
                   <View style={{ flex: 1 }} />
-                  <Pressable style={[styles.smallBtn, followAudio && styles.smallBtnActive]} onPress={() => setFollowAudio(!followAudio)}>
-                    <Text style={[styles.smallBtnText, followAudio && styles.smallBtnTextActive]}>↕ 跟随</Text>
+                  <Pressable style={[s.smallBtn, followAudio && s.smallBtnActive]} onPress={() => setFollowAudio(!followAudio)}>
+                    <Text style={[s.smallBtnText, followAudio && s.smallBtnTextActive]}>↕ 跟随</Text>
                   </Pressable>
                 </View>
-                <Text style={styles.hintText}>点击段落跳转播放；静音键不影响；锁屏/灵动岛可继续</Text>
+                <Text style={s.hintText}>点击段落跳转播放；静音键不影响；锁屏/灵动岛可继续</Text>
               </View>
             ) : (
-              <Text style={styles.hintText}>本课程暂无音频</Text>
+              <Text style={s.hintText}>本课程暂无音频</Text>
             )}
 
             {(detail.notesDocuments?.length ?? 0) > 0 && (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>📝 学习笔记</Text>
+              <View style={s.card}>
+                <Text style={s.sectionTitle}>📝 学习笔记</Text>
                 {detail.notesDocuments!.map((doc) => (
-                  <Pressable key={doc.id} style={styles.docRow} onPress={() => openNotesDoc(doc)}>
-                    <Text numberOfLines={1} style={styles.docName}>
+                  <Pressable key={doc.id} style={s.docRow} onPress={() => openNotesDoc(doc)}>
+                    <Text numberOfLines={1} style={s.docName}>
                       📄 {doc.originalName}
                     </Text>
-                    <Text style={styles.openLink}>打开 ↗</Text>
+                    <Text style={s.openLink}>打开 ↗</Text>
                   </Pressable>
                 ))}
               </View>
             )}
 
             {detail.notes ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>备注</Text>
-                <Text style={styles.notesText}>{detail.notes}</Text>
+              <View style={s.card}>
+                <Text style={s.sectionTitle}>备注</Text>
+                <Text style={s.notesText}>{detail.notes}</Text>
               </View>
             ) : null}
 
-            <Text style={styles.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
+            <Text style={s.sectionTitle}>双语文本（{paragraphs.length} 段）</Text>
           </ScrollView>
 
           {/* ===== 双语字幕独立滚动区：高度 = 屏幕减去上方固定播放区 ===== */}
@@ -626,7 +686,7 @@ function CourseScreen({
             ref={listRef}
             data={paragraphs}
             keyExtractor={(p) => p.id}
-            style={styles.subtitleZone}
+            style={s.subtitleZone}
             contentContainerStyle={{ padding: 16, paddingTop: 12, paddingBottom: 24, gap: 10 }}
             onScrollToIndexFailed={(info) => {
               // item 未渲染时先按平均高度粗滚，再补一次精确滚动
@@ -640,7 +700,7 @@ function CourseScreen({
               }, 120);
             }}
             ListEmptyComponent={
-              <Text style={styles.hintText}>本课程暂无文本</Text>
+              <Text style={s.hintText}>本课程暂无文本</Text>
             }
             renderItem={({ item: p }) => (
               <ParagraphRow paragraph={p} active={p.id === activeId} fontEn={font.en} fontZh={font.zh} onPress={() => seekTo(p.startTimeMs)} />
@@ -666,11 +726,14 @@ const ParagraphRow = React.memo(function ParagraphRow({
   fontZh: number;
   onPress: () => void;
 }) {
+    const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
+
   return (
-    <Pressable style={[styles.paragraph, active && styles.paragraphActive]} onPress={onPress}>
-      {p.textEn ? <Text style={[styles.textEn, { fontSize: fontEn }, active && styles.textEnActive]}>{p.textEn}</Text> : null}
-      {p.textZh ? <Text style={[styles.textZh, { fontSize: fontZh }]}>{p.textZh}</Text> : null}
-      <Text style={styles.timestamp}>{typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}</Text>
+    <Pressable style={[s.paragraph, active && s.paragraphActive]} onPress={onPress}>
+      {p.textEn ? <Text style={[s.textEn, { fontSize: fontEn }, active && s.textEnActive]}>{p.textEn}</Text> : null}
+      {p.textZh ? <Text style={[s.textZh, { fontSize: fontZh }]}>{p.textZh}</Text> : null}
+      <Text style={s.timestamp}>{typeof p.startTimeMs === 'number' ? `⏱ ${formatTime(p.startTimeMs)}` : '无时间戳'}</Text>
     </Pressable>
   );
 });
@@ -681,6 +744,9 @@ const STATUS_LABEL: Record<VocabStatus, string> = { NEW: '生词', LEARNING: '�
 const NEXT_STATUS: Record<VocabStatus, VocabStatus> = { NEW: 'LEARNING', LEARNING: 'MASTERED', MASTERED: 'NEW' };
 
 function VocabularyScreen({ apiBase }: { apiBase: string }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
+
   const [items, setItems] = useState<VocabularyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -714,8 +780,8 @@ function VocabularyScreen({ apiBase }: { apiBase: string }) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={pal.primary} />
       </View>
     );
   }
@@ -726,21 +792,21 @@ function VocabularyScreen({ apiBase }: { apiBase: string }) {
       contentContainerStyle={{ padding: 16, gap: 10 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}
       ListEmptyComponent={
-        <View style={styles.center}>
-          <Text style={styles.hintText}>暂无生词；在电脑端课程页点段落旁 🔤 加入</Text>
+        <View style={s.center}>
+          <Text style={s.hintText}>暂无生词；在电脑端课程页点段落旁 🔤 加入</Text>
         </View>
       }
       renderItem={({ item }) => (
-        <View style={styles.card}>
-          <View style={styles.vocabHead}>
-            <Text style={styles.vocabWord}>{item.word}</Text>
+        <View style={s.card}>
+          <View style={s.vocabHead}>
+            <Text style={s.vocabWord}>{item.word}</Text>
             <Pressable onPress={() => void cycleStatus(item)}>
-              <Text style={[styles.vocabBadge, item.status === 'MASTERED' && styles.vocabMastered]}>{STATUS_LABEL[item.status]}</Text>
+              <Text style={[s.vocabBadge, item.status === 'MASTERED' && s.vocabMastered]}>{STATUS_LABEL[item.status]}</Text>
             </Pressable>
           </View>
-          {item.phonetic ? <Text style={styles.vocabPhonetic}>{item.phonetic}</Text> : null}
-          {item.definitionZh ? <Text style={styles.vocabDef}>{item.definitionZh}</Text> : null}
-          {item.exampleSentence ? <Text style={styles.vocabExample} numberOfLines={2}>“{item.exampleSentence}”</Text> : null}
+          {item.phonetic ? <Text style={s.vocabPhonetic}>{item.phonetic}</Text> : null}
+          {item.definitionZh ? <Text style={s.vocabDef}>{item.definitionZh}</Text> : null}
+          {item.exampleSentence ? <Text style={s.vocabExample} numberOfLines={2}>“{item.exampleSentence}”</Text> : null}
         </View>
       )}
     />
@@ -750,6 +816,9 @@ function VocabularyScreen({ apiBase }: { apiBase: string }) {
 // ==================== 收藏 ====================
 
 function FavoritesScreen({ apiBase }: { apiBase: string }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
+
   const [items, setItems] = useState<FavoriteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -774,8 +843,8 @@ function FavoritesScreen({ apiBase }: { apiBase: string }) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={pal.primary} />
       </View>
     );
   }
@@ -786,25 +855,25 @@ function FavoritesScreen({ apiBase }: { apiBase: string }) {
       contentContainerStyle={{ padding: 16, gap: 10 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load()} />}
       ListEmptyComponent={
-        <View style={styles.center}>
-          <Text style={styles.hintText}>暂无收藏</Text>
+        <View style={s.center}>
+          <Text style={s.hintText}>暂无收藏</Text>
         </View>
       }
       renderItem={({ item }) => (
-        <View style={styles.card}>
+        <View style={s.card}>
           {item.type === 'COURSE' ? (
-            <Text style={styles.cardTitle}>⭐ {item.courseTitle ?? '课程'}</Text>
+            <Text style={s.cardTitle}>⭐ {item.courseTitle ?? '课程'}</Text>
           ) : (
             <>
-              <Text style={styles.textEn} numberOfLines={2}>
+              <Text style={s.textEn} numberOfLines={2}>
                 {item.excerptEn}
               </Text>
-              <Text style={styles.textZh} numberOfLines={2}>
+              <Text style={s.textZh} numberOfLines={2}>
                 {item.excerptZh}
               </Text>
             </>
           )}
-          <Text style={styles.cardMeta}>{new Date(item.createdAt).toLocaleString()}</Text>
+          <Text style={s.cardMeta}>{new Date(item.createdAt).toLocaleString()}</Text>
         </View>
       )}
     />
@@ -814,19 +883,22 @@ function FavoritesScreen({ apiBase }: { apiBase: string }) {
 // ==================== 设置 ====================
 
 function SettingsModal({ apiBase, onSave, onClose }: { apiBase: string; onSave: (v: string) => void; onClose: () => void }) {
+  const pal = usePalette();
+  const s = useMemo(() => makeStyles(pal), [pal]);
+
   const [value, setValue] = useState(apiBase);
   return (
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalCard}>
-        <Text style={styles.sectionTitle}>API 地址</Text>
-        <TextInput style={styles.input} value={value} onChangeText={setValue} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="http://192.168.x.x:3001" />
-        <Text style={styles.hintText}>手机与电脑需在同一 Wi-Fi；电脑端 docker compose up -d 运行 API</Text>
+    <View style={s.modalOverlay}>
+      <View style={s.modalCard}>
+        <Text style={s.sectionTitle}>API 地址</Text>
+        <TextInput style={s.input} value={value} onChangeText={setValue} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="http://192.168.x.x:3001" />
+        <Text style={s.hintText}>手机与电脑需在同一 Wi-Fi；电脑端 docker compose up -d 运行 API</Text>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, justifyContent: 'flex-end' }}>
-          <Pressable style={styles.retryBtn} onPress={onClose}>
-            <Text style={styles.retryText}>取消</Text>
+          <Pressable style={s.retryBtn} onPress={onClose}>
+            <Text style={s.retryText}>取消</Text>
           </Pressable>
-          <Pressable style={[styles.retryBtn, { backgroundColor: '#4f46e5' }]} onPress={() => onSave(value)}>
-            <Text style={[styles.retryText, { color: '#fff' }]}>保存</Text>
+          <Pressable style={[s.retryBtn, { backgroundColor: pal.primary }]} onPress={() => onSave(value)}>
+            <Text style={[s.retryText, { color: '#fff' }]}>保存</Text>
           </Pressable>
         </View>
       </View>
@@ -836,66 +908,67 @@ function SettingsModal({ apiBase, onSave, onClose }: { apiBase: string; onSave: 
 
 // ==================== 样式 ====================
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+  container: { flex: 1, backgroundColor: c.bg },
   screen: { flex: 1 },
   fixedZone: { flexShrink: 0, maxHeight: '55%' },
   subtitleZone: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 24 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 10, backgroundColor: c.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
   headerTitle: { fontSize: 18, fontWeight: '700' },
-  backBtn: { color: '#4f46e5', fontSize: 15, fontWeight: '600' },
-  settingsBtn: { fontSize: 14, color: '#4f46e5', fontWeight: '600' },
+  backBtn: { color: c.primary, fontSize: 15, fontWeight: '600' },
+  settingsBtn: { fontSize: 14, color: c.primary, fontWeight: '600' },
   tabContent: { flex: 1 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e2e8f0', paddingBottom: 18, paddingTop: 6 },
+  tabBar: { flexDirection: 'row', backgroundColor: c.card, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border, paddingBottom: 18, paddingTop: 6 },
   tabItem: { flex: 1, alignItems: 'center', gap: 1 },
   tabIcon: { fontSize: 19, opacity: 0.45 },
   tabIconActive: { opacity: 1 },
-  tabLabel: { fontSize: 10, color: '#94a3b8' },
-  tabLabelActive: { color: '#4f46e5', fontWeight: '600' },
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 14, gap: 4 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
-  cardMeta: { fontSize: 12, color: '#64748b' },
-  continueCard: { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' },
-  continueLabel: { fontSize: 11, fontWeight: '700', color: '#4f46e5' },
+  tabLabel: { fontSize: 10, color: c.faint },
+  tabLabelActive: { color: c.primary, fontWeight: '600' },
+  card: { backgroundColor: c.card, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, padding: 14, gap: 4 },
+  cardTitle: { fontSize: 15, fontWeight: '600', color: c.text },
+  cardMeta: { fontSize: 12, color: c.sub },
+  continueCard: { backgroundColor: c.primaryBg, borderColor: c.primaryBorder },
+  continueLabel: { fontSize: 11, fontWeight: '700', color: c.primary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  gridCell: { width: '31%', backgroundColor: '#fff', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 12, gap: 4 },
-  gridLabel: { fontSize: 11, color: '#64748b' },
-  gridValue: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  detailTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginTop: 6 },
-  playerCard: { backgroundColor: '#eef2ff', borderRadius: 12, padding: 14, gap: 8 },
-  playerTitle: { fontSize: 13, fontWeight: '600', color: '#312e81' },
+  gridCell: { width: '31%', backgroundColor: c.card, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, padding: 12, gap: 4 },
+  gridLabel: { fontSize: 11, color: c.sub },
+  gridValue: { fontSize: 16, fontWeight: '700', color: c.text },
+  detailTitle: { fontSize: 20, fontWeight: '700', color: c.text },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: c.text, marginTop: 6 },
+  playerCard: { backgroundColor: c.primaryBg, borderRadius: 12, padding: 14, gap: 8 },
+  playerTitle: { fontSize: 13, fontWeight: '600', color: c.primaryText },
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  playBtn: { backgroundColor: '#4f46e5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  playBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  smallBtn: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: '#a5b4fc', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#fff' },
-  smallBtnActive: { backgroundColor: '#4f46e5', borderColor: '#4f46e5' },
-  smallBtnText: { color: '#4f46e5', fontSize: 12, fontWeight: '700' },
-  smallBtnTextActive: { color: '#fff' },
-  timeText: { fontSize: 12, color: '#4338ca', fontVariant: ['tabular-nums'] },
-  paragraph: { backgroundColor: '#fff', borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0', padding: 12, gap: 4 },
-  paragraphActive: { backgroundColor: '#eef2ff', borderColor: '#6366f1', borderWidth: 1.5 },
-  textEn: { color: '#0f172a' },
-  textEnActive: { color: '#312e81', fontWeight: '700' },
-  textZh: { color: '#64748b' },
-  timestamp: { fontSize: 11, color: '#94a3b8' },
-  notesText: { fontSize: 13, color: '#475569', lineHeight: 19 },
+  playBtn: { backgroundColor: c.primary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  playBtnText: { color: c.card, fontWeight: '700', fontSize: 14 },
+  smallBtn: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: '#a5b4fc', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: c.card },
+  smallBtnActive: { backgroundColor: c.primary, borderColor: c.primary },
+  smallBtnText: { color: c.primary, fontSize: 12, fontWeight: '700' },
+  smallBtnTextActive: { color: c.card },
+  timeText: { fontSize: 12, color: c.primary, fontVariant: ['tabular-nums'] },
+  paragraph: { backgroundColor: c.card, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, padding: 12, gap: 4 },
+  paragraphActive: { backgroundColor: c.primaryBg, borderColor: '#6366f1', borderWidth: 1.5 },
+  textEn: { color: c.text },
+  textEnActive: { color: c.primaryText, fontWeight: '700' },
+  textZh: { color: c.sub },
+  timestamp: { fontSize: 11, color: c.faint },
+  notesText: { fontSize: 13, color: c.sub, lineHeight: 19 },
   docRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
-  docName: { flex: 1, fontSize: 13, color: '#0f172a', marginRight: 8 },
-  openLink: { color: '#4f46e5', fontSize: 13, fontWeight: '600' },
+  docName: { flex: 1, fontSize: 13, color: c.text, marginRight: 8 },
+  openLink: { color: c.primary, fontSize: 13, fontWeight: '600' },
   vocabHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  vocabWord: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  vocabBadge: { fontSize: 11, color: '#4f46e5', backgroundColor: '#eef2ff', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', fontWeight: '600' },
-  vocabMastered: { color: '#059669', backgroundColor: '#ecfdf5' },
-  vocabPhonetic: { fontSize: 12, color: '#94a3b8' },
-  vocabDef: { fontSize: 13, color: '#475569' },
-  vocabExample: { fontSize: 12, fontStyle: 'italic', color: '#94a3b8' },
-  hintText: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
-  errorText: { fontSize: 15, fontWeight: '600', color: '#dc2626' },
-  retryBtn: { borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#cbd5e1', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#fff' },
-  retryText: { color: '#4f46e5', fontWeight: '600', fontSize: 13 },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginTop: 8, backgroundColor: '#fff' },
-  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 14, padding: 18 }
-});
+  vocabWord: { fontSize: 16, fontWeight: '700', color: c.text },
+  vocabBadge: { fontSize: 11, color: c.primary, backgroundColor: c.primaryBg, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', fontWeight: '600' },
+  vocabMastered: { color: c.success, backgroundColor: c.successBg },
+  vocabPhonetic: { fontSize: 12, color: c.faint },
+  vocabDef: { fontSize: 13, color: c.sub },
+  vocabExample: { fontSize: 12, fontStyle: 'italic', color: c.faint },
+  hintText: { fontSize: 12, color: c.faint, textAlign: 'center' },
+  errorText: { fontSize: 15, fontWeight: '600', color: c.danger },
+  retryBtn: { borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#cbd5e1', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: c.card },
+  retryText: { color: c.primary, fontWeight: '600', fontSize: 13 },
+  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, marginTop: 8, backgroundColor: c.card },
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modalCard: { width: '100%', backgroundColor: c.card, borderRadius: 14, padding: 18 }
+  });
