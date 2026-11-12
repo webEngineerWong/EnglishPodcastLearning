@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
+import { Bookmark } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useFavorites, useInvalidate } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -36,7 +37,7 @@ export default function FavoritesPage() {
           <Spinner />
         </div>
       ) : !data || data.length === 0 ? (
-        <EmptyState icon="⭐" title={t('empty')} />
+        <EmptyState title={t('empty')} />
       ) : (
         <div className="space-y-2">
           {data.map((f) => (
@@ -45,7 +46,7 @@ export default function FavoritesPage() {
                 <div className="min-w-0">
                   {f.type === 'COURSE' ? (
                     <Link href={f.courseId ? `/courses/${f.courseId}` : '#'} className="text-sm font-medium hover:text-primary">
-                      ⭐ {f.courseTitle ?? '课程'}
+                      <Bookmark size={13} className="mr-1 inline text-primary" />{f.courseTitle ?? '课程'}
                     </Link>
                   ) : (
                     <div className="text-sm">

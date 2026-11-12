@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
+import { Inbox, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useImportJobs, useInvalidate } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -57,7 +58,7 @@ export default function ImportPage() {
           void upload(e.dataTransfer.files);
         }}
       >
-        <div className="mb-2 text-3xl">📥</div>
+        <div className="mb-2 flex justify-center"><Inbox size={32} className="text-primary" /></div>
         <div className="text-sm font-medium">{t('uploadFiles')}</div>
         <div className="mt-1 text-xs text-muted-foreground">{t('importHint')}</div>
         <div className="mt-1 text-[11px] text-muted-foreground">
@@ -90,7 +91,7 @@ export default function ImportPage() {
               }}
               title="分次上传的 MP3/字幕/文本会按集数自动凑组"
             >
-              🔍 重新匹配
+              <Search size={13} className="mr-1 inline" /> 重新匹配
             </Button>
           </div>
           {isLoading ? (
@@ -98,7 +99,7 @@ export default function ImportPage() {
               <Spinner />
             </div>
           ) : !data || data.items.length === 0 ? (
-            <EmptyState icon="📥" title={t('empty')} />
+            <EmptyState title={t('empty')} />
           ) : (
             <div className="space-y-2">
               {data.items.map((j) => (

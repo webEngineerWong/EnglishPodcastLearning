@@ -3,6 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Input, Select, Spinner, Tabs, useI18n } from '@elp/ui';
+import { ImagePlus, Paperclip, Timer } from 'lucide-react';
 import {
   AudioPlayer,
   formatTime,
@@ -204,7 +205,8 @@ export default function CourseDetailPage() {
               }}
             />
             <Button variant="outline" onClick={() => appendRef.current?.click()}>
-              📎 追加音频/文本
+              <Paperclip size={14} />
+              追加音频/文本
             </Button>
             <input
               ref={coverRef}
@@ -229,10 +231,12 @@ export default function CourseDetailPage() {
               }}
             />
             <Button variant="outline" onClick={() => coverRef.current?.click()}>
-              🖼 设置封面
+              <ImagePlus size={14} />
+              设置封面
             </Button>
             <Button variant={showTiming ? 'active' : 'outline'} onClick={() => setShowTiming(!showTiming)}>
-              ⏱ {t('paragraphTime')}
+              <Timer size={14} />
+              {t('paragraphTime')}
             </Button>
           </>
         }

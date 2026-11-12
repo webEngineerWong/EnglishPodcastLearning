@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Badge, Button, Card, CardContent, EmptyState, Input, Modal, Select, Spinner, Textarea, useI18n } from '@elp/ui';
+import { Bookmark, Headphones, Plus, Search } from 'lucide-react';
 import { useCategories, useCourses, useCreateCourse, useDeleteCourse, useToggleCourseFavorite } from '@/lib/hooks';
-import { DifficultyBadge, PageHeader } from '@/components/shell';
+import { DifficultyBadge, CourseCover, PageHeader } from '@/components/shell';
 
 export default function CoursesPage() {
   const { t } = useI18n();
@@ -38,19 +39,27 @@ export default function CoursesPage() {
       <PageHeader
         title={t('courses')}
         subtitle={`${t('total')} ${data?.total ?? 0} ${t('items')}`}
-        actions={<Button onClick={() => setShowCreate(true)}>+ {t('createCourse')}</Button>}
+        actions={
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus size={15} />
+            {t('createCourse')}
+          </Button>
+        }
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <Input
-          placeholder={t('searchPlaceholder')}
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="max-w-xs"
-        />
+        <div className="relative max-w-xs flex-1">
+          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t('searchPlaceholder')}
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="pl-8"
+          />
+        </div>
         <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="max-w-[180px]">
           <option value="">{t('allCategories')}</option>
           {categories?.map((c) => (
@@ -60,7 +69,8 @@ export default function CoursesPage() {
           ))}
         </Select>
         <Button variant={favorite ? 'active' : 'outline'} onClick={() => setFavorite(!favorite)}>
-          ⭐ {t('favorites')}
+          <Bookmark size={14} className={favorite ? 'fill-current' : ''} />
+          {t('favorites')}
         </Button>
       </div>
 
@@ -69,9 +79,9 @@ export default function CoursesPage() {
           <Spinner />
         </div>
       ) : !data || data.items.length === 0 ? (
-        <EmptyState icon="📚" title={t('empty')} hint="去导入中心上传你的 PDF 对照文本和 MP3" />
+        <EmptyState title={t('empty')} hint="去导入中心上传你的 PDF 对照文本和 MP3" />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {data.items.map((c) => (
             <CourseCard
               key={c.id}
@@ -143,31 +153,38 @@ function CourseCard({
   course,
   onDelete
 }: {
-  course: { id: string; title: string; description?: string | null; difficulty: number; tags: string[]; categoryName?: string | null; favorite?: boolean; audioCount: number; lastLearnedAt?: string | null };
+  course: { id: string; title: string; description?: string | null; difficulty: number; tags: string[]; categoryName?: string | null; favorite?: boolean; audioCount: number; lastLearnedAt?: string | null; coverUrl?: string | null };
   onDelete: () => void;
 }) {
   const { t } = useI18n();
   const toggle = useToggleCourseFavorite(course.id, Boolean(course.favorite));
   return (
-    <Card className="group transition-shadow hover:shadow-md">
-      <CardContent className="p-4">
+    <Card className="group overflow-hidden transition-shadow hover:shadow-md">
+      <Link href={`/courses/${course.id}`} className="block">
+        <CourseCover url={course.coverUrl} title={course.title} className="h-32 w-full text-2xl" />
+      </Link>
+      <CardContent className="p-4 pt-3">
         <div className="flex items-start justify-between gap-2">
           <Link href={`/courses/${course.id}`} className="min-w-0 flex-1">
             <h3 className="truncate font-medium group-hover:text-primary">{course.title}</h3>
             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{course.description ?? '—'}</p>
           </Link>
           <button
-            className={course.favorite ? 'text-amber-400' : 'text-muted-foreground/40 hover:text-amber-400'}
+            className={course.favorite ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary'}
             onClick={() => toggle.mutate()}
             title={t('favorites')}
+            aria-label={t('favorites')}
           >
-            {course.favorite ? '★' : '☆'}
+            <Bookmark size={17} className={course.favorite ? 'fill-current' : ''} />
           </button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <DifficultyBadge level={course.difficulty} />
           {course.categoryName && <Badge tone="muted">{course.categoryName}</Badge>}
-          <Badge tone="muted">🎧 {course.audioCount}</Badge>
+          <Badge tone="muted">
+            <Headphones size={11} className="mr-1" />
+            {course.audioCount}
+          </Badge>
           {course.tags.slice(0, 3).map((tag) => (
             <Badge key={tag} tone="muted">
               #{tag}

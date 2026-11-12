@@ -13,7 +13,12 @@ const COURSE_INCLUDE_BASE = {
   category: { select: { id: true, name: true } },
   audios: { orderBy: { order: 'asc' as const }, select: { id: true, originalName: true, durationSec: true, sizeBytes: true, order: true, storageKey: true } },
   _count: { select: { audios: true } }
-};
+} as const;
+
+/** 列表/详情通用的封面地址（coverKey 存在时生成签名 URL） */
+async function coverUrlOf(storage: StorageService, coverKey: string | null): Promise<string | null> {
+  return coverKey ? storage.getSignedUrl(coverKey, 7200) : null;
+}
 
 @Injectable()
 export class CoursesService {
@@ -76,22 +81,25 @@ export class CoursesService {
     });
     const progressMap = new Map(progress.map((p) => [p.courseId, p]));
 
-    const items = rows.map((c) => ({
-      id: c.id,
-      title: c.title,
-      description: c.description,
-      difficulty: c.difficulty,
-      status: c.status,
-      tags: c.tags,
-      categoryId: c.categoryId,
-      categoryName: c.category?.name ?? null,
-      audioCount: c._count.audios,
-      favorite: favSet.has(c.id),
-      lastLearnedAt: progressMap.get(c.id)?.lastLearnedAt ?? null,
-      lastPositionMs: progressMap.get(c.id)?.positionMs ?? null,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt
-    }));
+    const items = await Promise.all(
+      rows.map(async (c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        difficulty: c.difficulty,
+        status: c.status,
+        tags: c.tags,
+        categoryId: c.categoryId,
+        categoryName: c.category?.name ?? null,
+        audioCount: c._count.audios,
+        favorite: favSet.has(c.id),
+        lastLearnedAt: progressMap.get(c.id)?.lastLearnedAt ?? null,
+        lastPositionMs: progressMap.get(c.id)?.positionMs ?? null,
+        coverUrl: await coverUrlOf(this.storage, c.coverKey),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt
+      }))
+    );
 
     return { items, total, page, limit };
   }
@@ -189,7 +197,7 @@ export class CoursesService {
       }));
 
     // 课程封面（锁屏/灵动岛卡片与移动端展示用）
-    const coverUrl = c.coverKey ? await this.storage.getSignedUrl(c.coverKey, 7200) : null;
+    const coverUrl = await coverUrlOf(this.storage, c.coverKey);
 
     return {
       id: c.id,

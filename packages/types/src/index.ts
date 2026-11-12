@@ -132,6 +132,8 @@ export interface CourseListItem {
   favorite?: boolean;
   lastLearnedAt?: string | null;
   lastPositionMs?: number | null;
+  /** 课程封面（未设置时为 null，前端用占位） */
+  coverUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }

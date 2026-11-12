@@ -32,7 +32,7 @@ export default function VocabularyPage() {
           <Spinner />
         </div>
       ) : !data || data.length === 0 ? (
-        <EmptyState icon="🔤" title={t('empty')} hint="在课程详情页点击段落旁的 🔤 按钮加入生词" />
+        <EmptyState title={t('empty')} hint="在课程详情页点击段落旁的 🔤 按钮加入生词" />
       ) : (
         <div className="space-y-2">
           {data.map((v) => (
