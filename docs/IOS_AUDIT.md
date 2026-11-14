@@ -52,5 +52,5 @@
 
 1. 免费签名 7 天过期（`apps/mobile/scripts/reinstall.sh` 一键续期，设备 ID 本地化）。
 2. 灵动岛 compact 形态只有音波动画——精细进度环需 ActivityKit Live Activity（Widget Extension），列为远期。
-3. 无离线下载（P2，见 parity 文档）。
+3. ~~无离线下载~~ 已支持（2026-11-13）：课程页「下载离线」将音频 + 双语字幕缓存到沙盒 `documents/downloads/`，断网可播放/阅读；管理（删除）同入口。
 4. 生词/收藏「新增」入口在手机端缺失（列表与状态切换已有）——roadmap Sprint 5。

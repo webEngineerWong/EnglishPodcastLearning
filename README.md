@@ -36,19 +36,21 @@
 3. 人工校对后一键发布为课程
 4. 打开课程：**点一下英文段落，音频跳到那句话**，双语对照阅读，生词一键收藏
 
-内含 **Web 网站**（浏览器使用）和 **macOS 桌面客户端**（Electron），两端功能一致、共用同一后端。
+内含三端客户端：**Web 网站**（浏览器）、**macOS 桌面客户端**（Electron）、**iOS App**（Expo 真机构建），共用同一后端与学习逻辑。
 
 ### 核心能力一览
 
 | 模块 | 能力 |
 |---|---|
-| 🎧 播放器 | 0.5–2x 倍速、±5/30 秒快进退、单篇循环、单句循环、A-B 区间循环、快捷键、进度自动记忆 |
+| 🎧 播放器 | 0.5–2x 倍速、±5/30 秒快进退、单篇循环、单句循环、A-B 区间循环、快捷键、进度自动记忆、**Mini Player 页面切换常驻** |
 | 📖 双语阅读 | 点段落跳音频、当前段高亮、自动滚动、中英/纯英/纯中切换、复制、收藏、加生词 |
 | 📥 智能导入 | PDF 自动解析配对（PyMuPDF）、滚动式 SRT 行级去重、词汇锚点时间戳对齐、跨任务自动聚合、人工校对、纯音频课程 |
-| 📊 学习记录 | 今日/累计时长、连续天数、继续上次学习、生词复习状态、收藏 |
-| 🖥 桌面端 | 本地文件导入、托盘播放控制、全局快捷键、离线窗口 |
+| 📊 学习分析 | 今日/累计时长、**播放次数**、连续天数、**学习趋势图（7/14/30 天）**、**今日目标进度环**、**周热力图**、**时间分配（听/读/词/笔记）**、**AI 学习洞察** |
+| 📚 词汇 | 生词本状态流转（新/学习中/已掌握）、**词典查询（dictionaryapi.dev 真实释义 + 中译，不虚构）** |
+| 🖥 桌面端 | 本地文件导入、托盘播放控制、全局快捷键、音频磁盘缓存秒开、系统媒体元数据（锁屏/蓝牙控制） |
+| 📱 iOS | 离线下载（断网可学）、锁屏/灵动岛播放信息、每日目标、**负一屏小组件** |
 
-**一个重要的原则**：段落时间戳只来自真实字幕对齐（约 60% 自动覆盖）或人工标注，**对不上的段落一律留空，绝不伪造**。这是设计底线。
+**一个重要的原则**：段落时间戳只来自真实字幕对齐（约 60% 自动覆盖）或人工标注，**对不上的段落一律留空，绝不伪造**；词典释义只来自真实词典 API 查询，**查不到就显示未收录，绝不虚构**。这是设计底线。
 
 ---
 
@@ -321,6 +323,45 @@ open "apps/desktop/release/mac-arm64/English Podcast Learning.app"
 
 ---
 
+## 7.5 iOS 客户端
+
+### 截图
+
+| 学习台 | 课程列表（真实播放次数） | 课程详情（播放 + 双语点读） |
+|---|---|---|
+| ![学习台](docs/screenshots/ios/dashboard.png) | ![课程列表](docs/screenshots/ios/courses.png) | ![课程详情](docs/screenshots/ios/course-detail.png) |
+
+| 今日目标 + 本周热力图 | 生词本 | 收藏 |
+|---|---|---|
+| ![行为分析](docs/screenshots/ios/behavior-analysis.png) | ![生词本](docs/screenshots/ios/vocabulary.png) | ![收藏](docs/screenshots/ios/favorites.png) |
+
+### 功能
+
+- **学习台**：继续上次学习、6 项统计、学习趋势曲线（7/14/30 天切换）、今日目标进度环（达标变绿 + 庆祝 Toast）、本周热力图（点方块看当日记录）、时间分配（听力跟读/字幕精读/生词复习/学习笔记）、效率指标、AI 学习洞察
+- **课程**：列表显示真实播放次数（LearningSession 会话数）、搜索、收藏、上次位置
+- **课程详情**：播放/暂停、倍速、±15 秒、字体调节、字幕跟随开关、双语/纯英/纯中、点段落跳音频、段落收藏/加生词/复制、学习笔记 PDF 打开
+- **离线下载**：音频 + 双语文本缓存到沙盒，**断网可学**；「已离线 N MB · 点按删除」管理
+- **锁屏/灵动岛**：播放信息进系统 Now Playing（封面/进度/±10s 切课）；负一屏小组件显示当前播放 + 最近课程封面（点封面深链续播、按钮可控制播放）
+- **设置**：API 地址下拉预设 + 任意手填；API 地址、每日目标、字号均持久化
+
+### 打包到真机（免费签名）
+
+```bash
+cd apps/mobile/scripts
+# 先创建 .env.device（已被 .gitignore 忽略，含设备 UDID 与你的部署地址）：
+cat > .env.device << 'EOF'
+export ELP_DEVICE_UDID=<xcrun devicectl list devices 查看>
+export ELP_COREDEVICE_ID=<CoreDeviceID>
+export ELP_TUNNEL_URL='https://你的隧道域名'
+export ELP_LAN_URL='http://192.168.x.x:3001'
+EOF
+bash reinstall.sh     # 构建 → 装机 → ipa 到桌面 → 启动
+```
+
+> `.env.device` 里的部署地址**只在打包时注入**（源码占位符自动替换、构建后还原），不会进入 git 仓库。App 内也可在「设置」随时下拉切换预设或手填地址。
+
+---
+
 ## 8. 命令速查表
 
 | 命令 | 说明 |
@@ -339,6 +380,8 @@ open "apps/desktop/release/mac-arm64/English Podcast Learning.app"
 | `pnpm db:up` / `db:down` | 启停 PostgreSQL |
 | `pnpm db:migrate` / `db:seed` | 迁移 / 种子数据 |
 | `pnpm --filter @elp/api prisma studio` | 数据库可视化管理 |
+| `pnpm check:ui` | UI 规范守门（emoji/调色板/颜色字面量清零） |
+| `bash apps/mobile/scripts/reinstall.sh` | iOS 构建并装机（需 `.env.device`） |
 
 ---
 
@@ -393,6 +436,9 @@ open "apps/desktop/release/mac-arm64/English Podcast Learning.app"
 **Q9：想部署到服务器给多人用？**
 `ELP_API_URL=https://你的域名 docker compose up -d --build`。数据模型支持多用户，当前为单用户模式（无需登录）。
 
+**Q10：iOS App 显示「无法连接 API」？**
+App 的 API 地址可在「设置」下拉切换预设或手动填写。出门在外用隧道域名，在家同一 Wi-Fi 建议切局域网直连（`http://电脑IP:3001`）——局域网直连不依赖任何第三方隧道服务。iOS 打包地址注入见 7.5 节。
+
 ---
 
 ## 11. 文档地图（遇到问题去哪查）
@@ -418,13 +464,41 @@ open "apps/desktop/release/mac-arm64/English Podcast Learning.app"
 
 ## 客户端（三端）
 
-| 端 | 技术栈 | 目录 | 说明 |
+| 端 | 技术栈 | 目录 | 定位 |
 |---|---|---|---|
-| Web | Next.js 15 + React + Tailwind | `apps/web` | 完整功能：导入/校对/播放/学习笔记 |
-| Desktop | Electron + React（复用 Web 组件栈） | `apps/desktop` | 本地文件导入 + 全局快捷键 |
-| iOS | Expo SDK 58 / React Native 0.88（Development Build） | `apps/mobile` | 原生音频后台播放、锁屏/灵动岛控制、系统深色模式 |
+| Web | Next.js 15 + React + Tailwind | `apps/web` | **资料整理主战场**：导入/校对/发布/全部学习功能 |
+| Desktop | Electron + React（复用 Web 组件栈） | `apps/desktop` | 日常学习 + 本地文件导入 + 托盘/快捷键 |
+| iOS | Expo SDK 58 / RN 0.88（Development Build） | `apps/mobile` | **移动学习**：离线下载、锁屏/灵动岛、小组件 |
 
-共享层：`packages/types`（DTO）、`packages/api-client`（fetch 客户端）、`packages/player`（AudioEngine/循环/时间工具）、`packages/ui`（组件+i18n+主题）、`packages/learning-core`（SRT 解析/对齐/统计纯函数）。
+### 三端功能对照
+
+| 功能 | Web | Desktop | iOS |
+|---|---|---|---|
+| 学习台统计（今日/累计/连续/播放次数） | ✅ | ✅ | ✅ |
+| 学习趋势图（7/14/30 天） | ✅ | ✅ | ✅（原生 SVG 曲线） |
+| 今日目标进度环 + 周热力图 | — | — | ✅ |
+| 时间分配（听/读/词/笔记）+ AI 学习洞察 | — | — | ✅ |
+| 继续上次学习（进度自动记忆） | ✅ | ✅ | ✅ |
+| 课程列表（搜索/收藏/播放次数） | ✅ | ✅ | ✅ |
+| 播放器（倍速/循环/A-B/快进退） | ✅ | ✅ | ✅ |
+| Mini Player（页面切换常驻） | ✅ | ✅ | —（全屏播放页） |
+| 双语点读（点段落跳音频/高亮/跟随） | ✅ | ✅ | ✅ |
+| 段落收藏 / 加生词 / 复制 | ✅ | ✅ | ✅ |
+| 生词本（状态流转 + 搜索） | ✅ | ✅ | ✅（列表） |
+| 收藏（课程 + 句子） | ✅ | ✅ | ✅（列表） |
+| 词典查询（真实释义 + 中译） | ✅ | ✅ | — |
+| 导入（PDF/MP3/SRT 多选） | ✅ | ✅（原生对话框） | —（设计为电脑端职责） |
+| 导入校对（编辑/拆分/合并/排序/删除） | ✅ | ✅ | — |
+| 学习笔记 PDF | ✅（内嵌预览） | ✅（内嵌 + 系统浏览器） | ✅（系统浏览器打开） |
+| 课程封面设置 | ✅ | ✅ | 锁屏/小组件展示 |
+| **离线下载（断网学习）** | — | — | ✅ |
+| 锁屏 Now Playing / 灵动岛 / 负一屏小组件 | — | 系统媒体元数据 | ✅ |
+| 托盘控制 / 全局快捷键 | — | ✅ | 锁屏/耳机按钮 |
+| 音频磁盘缓存秒开 | — | ✅ | ✅（离线下载） |
+| 深色模式 | ✅（默认深色） | ✅ | ✅（跟随系统） |
+| 多语言（中/英） | ✅ | ✅ | 中文 |
+
+共享层：`packages/types`（DTO）、`packages/api-client`（fetch 客户端）、`packages/player`（AudioEngine/循环/时间工具）、`packages/ui`（组件+i18n+主题）、`packages/learning-core`（SRT 解析/对齐/统计纯函数）、`packages/icons`（三端统一 lucide 图标）。
 
 三端通过同一 NestJS API 同步业务数据（课程/段落/时间戳/收藏/生词/进度心跳）。
 详细审计与对齐状态见 `docs/UI_AUDIT.md`、`docs/IOS_AUDIT.md`、`docs/PLATFORM_PARITY.md`、`docs/THREE_PLATFORM_ROADMAP.md`。
