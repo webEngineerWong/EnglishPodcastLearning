@@ -6,9 +6,8 @@ import { Badge, Button, Card, CardContent, EmptyState, Icon, Select, Spinner, Ta
 import {
   AudioPlayer,
   formatTime,
-  useAudioEngine,
+  useGlobalPlayer,
   useKeyboardShortcuts,
-  usePlayerState,
   type AudioEngine
 } from '@elp/player';
 import { BilingualReader, MaterialReader, findActiveParagraph, type DisplayMode } from '@elp/ui';
@@ -39,8 +38,10 @@ export default function CourseDetailPage() {
   const resumeMs = useMemo(() => Number(searchParams.get('resume') ?? 0), [searchParams]);
   const loopParagraphRef = useRef<{ id: string | null }>({ id: null });
 
-  const engine = useAudioEngine();
-  const state = usePlayerState(engine);
+  // 全局播放器：Mini Player 页面切换常驻，详情页只负责装载曲目（同曲目已装载时播放不中断）
+  const player = useGlobalPlayer();
+  const engine = player.engine as AudioEngine;
+  const state = player.state;
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +68,7 @@ export default function CourseDetailPage() {
     };
   }, [courseId]);
 
-  // 引擎初始化：恢复播放位置 + 学习心跳
+  // 曲目装载：恢复播放位置；学习心跳由全局 PlayerProvider 接管（onProgressTick）
   const audioList = course?.audios ?? [];
   const audioIndex = audioList.length > 0 ? 0 : -1;
 
@@ -76,17 +77,14 @@ export default function CourseDetailPage() {
     const audio = audioList[audioIndex];
     const url = assetUrl(audio.url);
     if (!url) return;
-    engine.onProgressTick = (positionMs) => {
-      void api.heartbeat({ courseId, audioAssetId: audio.id, positionMs: Math.round(positionMs), deltaMs: 5000 }).catch(() => undefined);
-    };
-    // 首次加载：恢复进度（URL 带 resume 参数优先）
-    void (async () => {
-      const resume = resumeMs > 0 ? resumeMs : course.lastPositionMs ?? 0;
-      await engine.load(url, { startMs: resume, rate: 1 });
-    })();
-    return () => {
-      engine.onProgressTick = null;
-    };
+    // 同曲目已在全局播放器（Mini Player 切走再回来）：不重载，播放不中断
+    if (player.track?.audioId === audio.id && player.engine.getState().src === url) return;
+    const resume = resumeMs > 0 ? resumeMs : course.lastPositionMs ?? 0;
+    void player.loadTrack(
+      { courseId, courseTitle: course.title, audioId: audio.id, audioName: audio.originalName, coverUrl: course.coverUrl ?? null },
+      url,
+      { startMs: resume, autoplay: false }
+    );
     // 依赖刻意收窄
   }, [courseId, course && course.audios[0]?.id]);
 
@@ -238,6 +236,20 @@ export default function CourseDetailPage() {
                 设置封面
               </Button>
             </Tooltip>
+            {/* 下载音频（签名 URL 直下；本地存储 ?download=1 强制 attachment，R2 依赖浏览器处理跨域） */}
+            {audio?.url && (
+              <Tooltip label="下载音频文件">
+                <a
+                  href={audio.url.startsWith('/storage/') ? assetUrl(`${audio.url}?download=1`) : assetUrl(audio.url)}
+                  download={audio.originalName}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-4 text-sm font-medium hover:bg-muted"
+                  aria-label="下载音频文件"
+                >
+                  <Icon name="arrowDown" size="sm" />
+                  下载音频
+                </a>
+              </Tooltip>
+            )}
             <Button variant={showTiming ? 'active' : 'outline'} onClick={() => setShowTiming(!showTiming)}>
               <Icon name="timer" size="sm" />
               {t('paragraphTime')}

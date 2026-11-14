@@ -1,7 +1,20 @@
-import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Injectable, Module, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.module';
 import { UserResolver } from '../common/current-user';
+import { bucketTrend } from './trend';
+import { STORAGE_SERVICE_TOKEN } from '../storage/storage.tokens';
+import type { StorageService } from '../storage/storage.interface';
+import { ProgressService } from '../progress/progress.module';
+
+async function coverUrlOf(storage: StorageService, coverKey: string | null | undefined): Promise<string | null> {
+  if (!coverKey) return null;
+  try {
+    return await storage.getSignedUrl(coverKey);
+  } catch {
+    return null;
+  }
+}
 
 function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -9,7 +22,11 @@ function dayKey(d: Date): string {
 
 @Injectable()
 export class StatsService {
-  constructor(private prisma: PrismaService, private users: UserResolver) {}
+  constructor(
+    private prisma: PrismaService,
+    private users: UserResolver,
+    @Inject(STORAGE_SERVICE_TOKEN) private storage: StorageService
+  ) {}
 
   async dashboard() {
     const { id: userId } = await this.users.userForRequest();
@@ -36,7 +53,7 @@ export class StatsService {
           where: { userId },
           orderBy: { lastLearnedAt: 'desc' },
           take: 8,
-          include: { course: { select: { id: true, title: true, updatedAt: true, createdAt: true, difficulty: true, status: true, tags: true, categoryId: true, description: true } }, audioAsset: { select: { id: true, originalName: true } } }
+          include: { course: { select: { id: true, title: true, updatedAt: true, createdAt: true, difficulty: true, status: true, tags: true, categoryId: true, description: true, coverKey: true } }, audioAsset: { select: { id: true, originalName: true } } }
         }),
         this.prisma.course.count({ where: { status: 'PUBLISHED' } }),
         this.prisma.learningProgress.count({ where: { userId, completedAt: { not: null } } }),
@@ -73,6 +90,44 @@ export class StatsService {
         }
       : null;
 
+    // 当前播放状态（负一屏小组件显示 ▶/⏸）：播放中心跳 2s 刷新、15s 未更新视为停止上报
+    // （App 被杀/断网）；暂停态保留 5 分钟，让负一屏继续显示课程卡片与播放按钮（Spotify 式）
+    const np = ProgressService.nowPlayingMap.get(userId);
+    const fresh = np && Date.now() - np.updatedAt < (np.isPlaying ? 15_000 : 300_000);
+    const nowPlaying =
+      np && fresh
+        ? {
+            courseId: np.courseId,
+            title: np.title,
+            audioName: np.audioName ?? null,
+            coverUrl: np.coverUrl ?? null,
+            subtitle: np.subtitle ?? null,
+            positionMs: np.positionMs,
+            isPlaying: np.isPlaying,
+            updatedAt: np.updatedAt,
+            rate: np.rate ?? 1,
+            durationMs: np.durationMs ?? null
+          }
+        : null;
+
+    // 剩余学习内容（ms）：已发布课程音频总时长 − 各课程最新进度（按课程钳到 ≥0），预估完课时间用
+    const [publishedAudios, watchedRows] = await Promise.all([
+      this.prisma.audioAsset.findMany({ where: { course: { status: 'PUBLISHED' } }, select: { courseId: true, durationSec: true } }),
+      this.prisma.learningProgress.findMany({
+        where: { userId },
+        orderBy: { lastLearnedAt: 'desc' },
+        distinct: ['courseId'],
+        select: { courseId: true, positionMs: true }
+      })
+    ]);
+    const durationByCourse = new Map<string, number>();
+    for (const a of publishedAudios) durationByCourse.set(a.courseId, (durationByCourse.get(a.courseId) ?? 0) + (a.durationSec ?? 0) * 1000);
+    const watchedByCourse = new Map(watchedRows.map((r) => [r.courseId, r.positionMs]));
+    let remainingMs = 0;
+    for (const [courseId, totalMs] of durationByCourse) {
+      remainingMs += Math.max(0, totalMs - (watchedByCourse.get(courseId) ?? 0));
+    }
+
     return {
       todayMs: todayAgg._sum.durationMs ?? 0,
       totalMs: totalAgg._sum.durationMs ?? 0,
@@ -82,21 +137,26 @@ export class StatsService {
       vocabularyCount: vocabCount,
       favoriteCourseCount: favCount,
       continueLearning: continueItem,
-      recentCourses: recentProgress.map((p) => ({
-        id: p.course.id,
-        title: p.course.title,
-        description: p.course.description,
-        difficulty: p.course.difficulty,
-        status: p.course.status,
-        tags: p.course.tags,
-        categoryId: p.course.categoryId,
-        categoryName: null,
-        audioCount: 0,
-        lastLearnedAt: p.lastLearnedAt,
-        lastPositionMs: p.positionMs,
-        createdAt: p.course.createdAt,
-        updatedAt: p.course.updatedAt
-      })),
+      nowPlaying,
+      remainingMs,
+      recentCourses: await Promise.all(
+        recentProgress.map(async (p) => ({
+          id: p.course.id,
+          title: p.course.title,
+          description: p.course.description,
+          difficulty: p.course.difficulty,
+          status: p.course.status,
+          tags: p.course.tags,
+          categoryId: p.course.categoryId,
+          categoryName: null,
+          audioCount: 0,
+          coverUrl: await coverUrlOf(this.storage, (p.course as any).coverKey),
+          lastLearnedAt: p.lastLearnedAt,
+          lastPositionMs: p.positionMs,
+          createdAt: p.course.createdAt,
+          updatedAt: p.course.updatedAt
+        }))
+      ),
       recentSessions: sessions.map((s) => ({
         id: s.id,
         courseId: s.courseId,
@@ -148,6 +208,26 @@ export class StatsService {
       }))
     );
   }
+
+  async trend(days = 14) {
+    const { id: userId } = await this.users.userForRequest();
+
+    const count = Math.max(1, Math.min(90, Math.floor(days) || 14));
+    // 窗口起点：本地时区 (today - days + 1) 的零点
+    const now = new Date();
+    const windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (count - 1));
+
+    const rows = await this.prisma.learningSession.findMany({
+      // 以 endedAt 归属；进行中（endedAt 为空）的会话按 startedAt 归属
+      where: {
+        userId,
+        OR: [{ endedAt: { gte: windowStart } }, { endedAt: null, startedAt: { gte: windowStart } }]
+      },
+      select: { startedAt: true, endedAt: true, durationMs: true }
+    });
+
+    return bucketTrend(rows, count, now);
+  }
 }
 
 @ApiTags('stats')
@@ -163,6 +243,11 @@ export class StatsController {
   @Get('sessions')
   sessions(@Query('limit') limit?: string) {
     return this.service.sessions(limit ? Number(limit) : 50);
+  }
+
+  @Get('trend')
+  trend(@Query('days') days?: string) {
+    return this.service.trend(days ? Number(days) : 14);
   }
 }
 

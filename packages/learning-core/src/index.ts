@@ -187,6 +187,8 @@ export function rollingLinesToSegments(lines: SrtLine[], maxDurationMs = 45_000)
 export function mergeSrtCuesToParagraphs(cues: SrtCue[], gapMs = 1200): SrtCue[] {
   const out: SrtCue[] = [];
   for (const cue of cues) {
+    // 纯空白 cue（源 SRT 常见空条目/残影）不参与聚段，避免产生空段落
+    if (!cue.text.trim()) continue;
     const prev = out[out.length - 1];
     if (
       prev &&

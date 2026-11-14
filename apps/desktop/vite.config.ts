@@ -13,6 +13,8 @@ export default defineConfig({
   build: { outDir: 'renderer-dist' },
   resolve: {
     alias: [
+      // 必须排在 @elp/ui 之前：alias 是前缀替换，@elp/ui 会把子路径拼到 index.ts 文件上
+      { find: '@elp/ui/src/styles/tokens.css', replacement: r('../../packages/ui/src/styles/tokens.css') },
       { find: '@elp/types', replacement: r('../../packages/types/src/index.ts') },
       { find: '@elp/api-client', replacement: r('../../packages/api-client/src/index.ts') },
       { find: '@elp/learning-core', replacement: r('../../packages/learning-core/src/index.ts') },

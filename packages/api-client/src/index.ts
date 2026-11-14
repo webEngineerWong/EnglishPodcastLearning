@@ -12,12 +12,14 @@ import type {
   ID,
   ImportJobDto,
   LearningSessionDto,
+  TrendPointDto,
   Paginated,
   ProgressDto,
   TranscriptDto,
   UserDto,
   VocabularyDto,
-  VocabularyStatus
+  VocabularyStatus,
+  WordLookupDto
 } from '@elp/types';
 
 export interface ApiClientOptions {
@@ -284,6 +286,10 @@ export class ApiClient {
   listSessions(query?: { limit?: number }) {
     return this.get<LearningSessionDto[]>('/stats/sessions', query);
   }
+  /** 学习趋势：最近 days 天逐日学习时长（本地时区归日） */
+  getTrend(query?: { days?: number }) {
+    return this.get<TrendPointDto[]>('/stats/trend', query);
+  }
 
   // ---------- 收藏 ----------
   listFavorites(query?: { type?: FavoriteType; limit?: number }) {
@@ -302,6 +308,10 @@ export class ApiClient {
   // ---------- 词汇 ----------
   listVocabulary(query?: { status?: VocabularyStatus; search?: string; limit?: number }) {
     return this.get<VocabularyDto[]>('/vocabulary', query);
+  }
+  /** 词典查询：音标/释义（真实数据源，本地缓存优先；source=cache|dictionary|none） */
+  lookupWord(word: string) {
+    return this.get<WordLookupDto>(`/vocabulary/lookup/${encodeURIComponent(word)}`);
   }
   addVocabulary(body: {
     word: string;

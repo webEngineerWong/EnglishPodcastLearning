@@ -246,12 +246,14 @@ export interface MiniPlayerProps {
   onClose: () => void;
   /** 点标题/封面跳回课程详情 */
   onOpen?: () => void;
-  /** 定位类（Web 侧边栏 14rem / Desktop 12rem，由调用方传） */
+  /** 左侧偏移（rem）：Web 侧边栏 14.75 / Desktop 12.75，避开侧边栏区域 */
+  leftRem?: number;
+  /** 附加类名 */
   className?: string;
 }
 
 /** 页面切换常驻的迷你播放条：封面 + 标题 + 拖动进度 + 播放控制，音频不中断 */
-export function MiniPlayer({ engine, state, track, onClose, onOpen, className }: MiniPlayerProps) {
+export function MiniPlayer({ engine, state, track, onClose, onOpen, leftRem, className }: MiniPlayerProps) {
   const duration = state.durationMs;
   const pct = duration > 0 ? (state.currentTimeMs / duration) * 100 : 0;
   const barRef = React.useRef<HTMLDivElement>(null);
@@ -286,6 +288,7 @@ export function MiniPlayer({ engine, state, track, onClose, onOpen, className }:
       className={
         'fixed inset-x-3 bottom-3 z-40 flex items-center gap-3 rounded-xl border border-border bg-card p-2 shadow-lg ' + (className ?? '')
       }
+      style={leftRem != null ? { left: `${leftRem}rem` } : undefined}
     >
       {/* 封面/占位 + 标题（可点击回详情页） */}
       <button

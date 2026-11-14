@@ -1,10 +1,18 @@
 name: english-podcast-learning
 
+# 容器日志统一限量：手机端每 5s 心跳 + 每请求日志会把 json-file 日志喂到几十 GB（磁盘曾因此写满）
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:18-alpine
     container_name: elp-postgres
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: elp
       POSTGRES_PASSWORD: elp_dev_password
@@ -26,6 +34,7 @@ services:
       target: api-runtime
     container_name: elp-api
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql://elp:elp_dev_password@postgres:5432/elp?schema=public
       PORT: 3001
@@ -34,6 +43,12 @@ services:
       STORAGE_LOCAL_ROOT: /data/storage
       MAX_UPLOAD_MB: 200
       DEFAULT_USER_EMAIL: local@elp.dev
+      PDF_PARSER_PYTHON: /opt/pdf-venv/bin/python
+      PDF_PARSER_SCRIPT: /opt/pdf-parser/pdf_parser.py
+      # AI 学习洞察（OpenAI 兼容端点）；Key 不入库不入代码，从宿主环境变量/.env 注入
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://codexfree.xiaotuxp.com}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
     ports:
       - "${API_PORT:-3001}:3001"
     volumes:
@@ -42,7 +57,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/users/me >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/api/users/me').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -58,6 +73,7 @@ services:
         NEXT_PUBLIC_API_URL: ${ELP_API_URL:-http://localhost:3001}
     container_name: elp-web
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

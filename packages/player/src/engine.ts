@@ -34,6 +34,15 @@ export type PlayerEventMap = {
   statechange: PlayerState;
 };
 
+/** 系统媒体元数据（MediaSession：PC 锁屏 / 系统媒体浮窗 / 蓝牙耳机显示） */
+export interface MediaMetadataInfo {
+  title: string;
+  artist?: string;
+  album?: string;
+  /** 封面图 URL（绝对地址） */
+  artwork?: string;
+}
+
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 /**
@@ -66,6 +75,8 @@ export class AudioEngine {
   onProgressTick: ((positionMs: number) => void) | null = null;
 
   private progressTimer: ReturnType<typeof setInterval> | null = null;
+  private mediaSessionBound = false;
+  private lastMediaDurationSec = 0;
 
   constructor() {
     // audio 元素延迟到首次访问时创建（支持 SSR 预渲染）
@@ -118,16 +129,23 @@ export class AudioEngine {
   // ---------- 事件绑定 ----------
   private bindEvents() {
     const a = this.audio;
-    a.addEventListener('play', () => this.set({ playing: true, ended: false }));
-    a.addEventListener('pause', () => this.set({ playing: false }));
+    a.addEventListener('play', () => {
+      this.set({ playing: true, ended: false });
+      this.syncMediaSessionState();
+    });
+    a.addEventListener('pause', () => {
+      this.set({ playing: false });
+      this.syncMediaSessionState();
+    });
     a.addEventListener('waiting', () => this.set({ loading: true }));
     a.addEventListener('playing', () => this.set({ loading: false, error: null }));
-    a.addEventListener('loadedmetadata', () =>
+    a.addEventListener('loadedmetadata', () => {
+      this.lastMediaDurationSec = Number.isFinite(a.duration) ? a.duration : 0;
       this.set({
         durationMs: Number.isFinite(a.duration) ? a.duration * 1000 : 0,
         loading: false
-      })
-    );
+      });
+    });
     a.addEventListener('durationchange', () =>
       this.set({ durationMs: Number.isFinite(a.duration) ? a.duration * 1000 : this.state.durationMs })
     );
@@ -236,6 +254,57 @@ export class AudioEngine {
     const t = Math.max(0, Math.min(ms, dur > 0 ? dur - 200 : ms));
     this.audio.currentTime = t / 1000;
     this.set({ currentTimeMs: t, ended: false });
+    this.syncMediaSessionState();
+  }
+
+  // ---------- MediaSession（PC 锁屏 / 系统媒体控制） ----------
+  /**
+   * 设置系统媒体元数据并注册锁屏/媒体键控制。
+   * 守卫：环境不支持时静默 no-op（SSR、旧浏览器）。
+   */
+  setMediaMetadata(meta: MediaMetadataInfo): void {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: meta.title,
+        artist: meta.artist ?? '',
+        album: meta.album ?? '',
+        artwork: meta.artwork ? [{ src: meta.artwork, sizes: '512x512', type: 'image/jpeg' }] : []
+      });
+      if (!this.mediaSessionBound) {
+        this.mediaSessionBound = true;
+        const ms = navigator.mediaSession;
+        ms.setActionHandler('play', () => void this.play());
+        ms.setActionHandler('pause', () => this.pause());
+        ms.setActionHandler('seekbackward', () => this.skip(-15));
+        ms.setActionHandler('seekforward', () => this.skip(15));
+        // 部分系统（macOS 触控栏/浮窗）只发 seekto
+        ms.setActionHandler('seekto', (details) => {
+          if (typeof details.seekTime === 'number') this.seek(details.seekTime * 1000);
+        });
+      }
+      this.syncMediaSessionState();
+    } catch {
+      /* MediaMetadata 构造或 handler 注册失败：忽略（不影响播放） */
+    }
+  }
+
+  /** 同步播放状态与进度到系统（锁屏进度条/暂停态显示） */
+  private syncMediaSessionState(): void {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      const ms = navigator.mediaSession;
+      ms.playbackState = this.state.playing ? 'playing' : 'paused';
+      if (this.state.durationMs > 0) {
+        ms.setPositionState({
+          duration: this.state.durationMs / 1000,
+          position: Math.min(this.state.currentTimeMs / 1000, this.state.durationMs / 1000),
+          playbackRate: this.state.rate || 1
+        });
+      }
+    } catch {
+      /* 状态同步失败忽略 */
+    }
   }
 
   /** 相对快进/快退（秒可为负） */

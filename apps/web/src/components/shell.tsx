@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           track={player.track}
           onClose={player.close}
           onOpen={() => router.push(`/courses/${player.track!.courseId}`)}
-          className="md:left-[14.75rem]"
+          leftRem={14.75}
         />
       )}
     </div>
@@ -116,7 +116,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   );
 }
 
-/** 课程封面：有 coverUrl 显示图片，否则品牌色占位 + 标题首字 */
+/** 课程封面：有 coverUrl 显示图片，否则默认横幅封面（public/covers/default-banner.png） */
 export function CourseCover({
   url,
   title,
@@ -126,16 +126,10 @@ export function CourseCover({
   title: string;
   className?: string;
 }) {
-  const initial = title.trim().charAt(0).toUpperCase();
   return url ? (
-    <img src={assetUrl(url)} alt="" className={clsx('shrink-0 object-cover', className)} loading="lazy" />
+    <img src={assetUrl(url)} alt={title} className={clsx('shrink-0 object-cover', className)} loading="lazy" />
   ) : (
-    <div
-      className={clsx('flex shrink-0 select-none items-center justify-center bg-primary font-semibold text-primary-foreground', className)}
-      aria-hidden
-    >
-      {initial}
-    </div>
+    <img src="/covers/default-banner.png" alt={title} className={clsx('shrink-0 object-cover', className)} loading="lazy" />
   );
 }
 

@@ -40,6 +40,13 @@ export class LocalStorageService implements StorageService {
     const full = this.resolveKey(key);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     await fs.promises.writeFile(full, buffer);
+    // 写后校验：磁盘静默写丢（如 VM 磁盘异常时段）会让 writeFile"成功"但文件实际缺失/截断，
+    // 立即删除残件并抛错，避免上层建出"有库无文件"的记录（播放 404）
+    const st = await fs.promises.stat(full);
+    if (st.size !== buffer.byteLength) {
+      await fs.promises.rm(full, { force: true });
+      throw new Error(`storage write verification failed for ${key}: expected ${buffer.byteLength} bytes, got ${st.size}`);
+    }
     return { key, url: `/storage/file/${key}`, sizeBytes: buffer.byteLength, mimeType };
   }
 

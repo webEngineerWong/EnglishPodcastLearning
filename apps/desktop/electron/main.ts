@@ -1,7 +1,7 @@
 /**
  * Electron 主进程：安全基线（contextIsolation + 无 Node 权限渲染端）+ 窗口/托盘/全局快捷键/本地文件导入 IPC。
  */
-import { app, BrowserWindow, Tray, Menu, globalShortcut, dialog, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Tray, Menu, globalShortcut, dialog, ipcMain, nativeImage, shell, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -116,8 +116,75 @@ function registerIpc() {
     return { name: path.basename(resolved), data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
   });
 
+  registerAudioCacheIpc();
+
   ipcMain.handle('app:api-base-url', () => getApiBaseUrl());
   ipcMain.handle('app:platform', () => `${process.platform}-${process.arch}`);
+}
+
+// ==================== 音频磁盘缓存（PC 端锁屏/续播预加载） ====================
+// userData/audio-cache/{courseId}-{audioId}.{ext}；打开课程命中缓存即本地秒开，
+// 未命中远程播放 + 后台静默下载供下次使用。进行中下载共享同一 Promise 防重复。
+
+const audioCacheInflight = new Map<string, Promise<{ ok: boolean; sizeBytes: number }>>();
+
+function audioCacheDir(): string {
+  const dir = path.join(app.getPath('userData'), 'audio-cache');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** key 白名单校验（courseId-audioId.ext），防路径穿越 */
+function audioCachePath(key: string): string | null {
+  if (!/^[A-Za-z0-9._-]{1,150}$/.test(key)) return null;
+  return path.join(audioCacheDir(), key);
+}
+
+function registerAudioCacheIpc() {
+  ipcMain.handle('audio-cache:resolve', (_e, key: string) => {
+    const p = audioCachePath(key);
+    try {
+      return { cached: !!(p && fs.existsSync(p) && fs.statSync(p).size > 0) };
+    } catch {
+      return { cached: false };
+    }
+  });
+
+  ipcMain.handle('audio-cache:fetch', (_e, url: string, key: string) => {
+    const p = audioCachePath(key);
+    if (!p || !/^https?:\/\//i.test(url)) return Promise.resolve({ ok: false, sizeBytes: 0 });
+    if (fs.existsSync(p) && fs.statSync(p).size > 0) {
+      return Promise.resolve({ ok: true, sizeBytes: fs.statSync(p).size });
+    }
+    let job = audioCacheInflight.get(key);
+    if (!job) {
+      job = (async () => {
+        const resp = await net.fetch(url, { redirect: 'follow' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        if (buf.byteLength === 0) throw new Error('EMPTY_BODY');
+        if (buf.byteLength > MAX_FILE_BYTES) throw new Error('文件过大');
+        // 先写临时文件再原子改名，避免半截文件被当作有效缓存
+        const tmp = `${p}.tmp-${Date.now()}`;
+        await fs.promises.writeFile(tmp, buf);
+        await fs.promises.rename(tmp, p);
+        console.log(`[audio-cache] saved ${key} (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB)`);
+        return { ok: true, sizeBytes: buf.byteLength };
+      })().catch((e) => {
+        console.warn('[audio-cache] download failed:', key, e instanceof Error ? e.message : e);
+        return { ok: false, sizeBytes: 0 };
+      }).finally(() => audioCacheInflight.delete(key));
+      audioCacheInflight.set(key, job);
+    }
+    return job;
+  });
+
+  ipcMain.handle('audio-cache:read', async (_e, key: string) => {
+    const p = audioCachePath(key);
+    if (!p || !fs.existsSync(p)) throw new Error('NOT_CACHED');
+    const buf = await fs.promises.readFile(p);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  });
 }
 
 console.log('[main] booting, userData =', app.getPath('userData'));

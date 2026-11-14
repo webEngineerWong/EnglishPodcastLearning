@@ -1,10 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Badge, Button, Card, CardContent, EmptyState, Spinner, useI18n } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Spinner, TrendChart, useI18n } from '@elp/ui';
 import { formatDuration, formatTime } from '@elp/player';
-import { useDashboard } from '@/lib/hooks';
+import { useDashboard, useTrend } from '@/lib/hooks';
 import { Icon, type IconName } from '@elp/ui';
 import { PageHeader, CourseCover } from '@/components/shell';
 
@@ -18,6 +19,34 @@ function StatCard({ label, value, hint, icon }: { label: string; value: string; 
         </div>
         <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
         {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** 学习趋势卡：近 7/14/30 天逐日学习时长（Recharts） */
+function TrendCard() {
+  const { t } = useI18n();
+  const [days, setDays] = useState(14);
+  const { data: trend } = useTrend(days);
+
+  return (
+    <Card className="mb-6">
+      <CardContent className="p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Icon name="trendingUp" size="sm" className="text-primary" />
+            {t('learningTrend')}
+          </h2>
+          <div className="flex items-center gap-1">
+            {([7, 14, 30] as const).map((d) => (
+              <Button key={d} size="sm" variant={days === d ? 'active' : 'ghost'} onClick={() => setDays(d)}>
+                {t(d === 7 ? 'last7Days' : d === 14 ? 'last14Days' : 'last30Days')}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {trend ? <TrendChart points={trend} /> : <div className="flex h-52 items-center justify-center"><Spinner /></div>}
       </CardContent>
     </Card>
   );
@@ -96,6 +125,9 @@ export default function DashboardPage() {
         <StatCard label={t('vocabularyCount')} value={String(data.vocabularyCount)} icon="vocabulary" />
         <StatCard label={t('favoriteCourses')} value={String(data.favoriteCourseCount)} icon="favorites" />
       </div>
+
+      {/* 学习趋势 */}
+      <TrendCard />
 
       {/* 快速入口 */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">

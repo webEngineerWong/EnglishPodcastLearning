@@ -566,7 +566,6 @@ export class ImportService {
     const out: DraftParagraph[] = [];
     let buf: Pair[] = [];
     const flush = () => {
-      if (buf.length === 0) return;
       const textEn =
         buf
           .map((x) => x.textEn)
@@ -579,18 +578,21 @@ export class ImportService {
           .filter(Boolean)
           .join('\n')
           .trim() || null;
-      out.push({
-        order: 0,
-        type: 'PARAGRAPH',
-        textEn,
-        textZh,
-        startTimeMs: buf[0].startMs,
-        endTimeMs: buf[buf.length - 1].endMs,
-        confidence: textEn && textZh ? 0.85 : 0.6,
-        warnings: textEn && !textZh ? ['no_zh_match'] : !textEn ? ['zh_only'] : [],
-        reviewStatus: 'PENDING',
-        timestampConfidence: 1
-      });
+      // 双语均为空白的段落（SRT 空 cue / 10ms 残影条目聚合）不入库，避免播放端渲染空白卡片
+      if (textEn || textZh) {
+        out.push({
+          order: 0,
+          type: 'PARAGRAPH',
+          textEn,
+          textZh,
+          startTimeMs: buf[0].startMs,
+          endTimeMs: buf[buf.length - 1].endMs,
+          confidence: textEn && textZh ? 0.85 : 0.6,
+          warnings: textEn && !textZh ? ['no_zh_match'] : !textEn ? ['zh_only'] : [],
+          reviewStatus: 'PENDING',
+          timestampConfidence: 1
+        });
+      }
       buf = [];
     };
     for (const p of pairs) {

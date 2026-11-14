@@ -69,5 +69,7 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /web
 COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+# Next standalone 不会自带 public：课程默认封面等静态资源需显式拷贝
+COPY --from=build /app/apps/web/public ./apps/web/public
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]

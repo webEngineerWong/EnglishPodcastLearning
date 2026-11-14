@@ -112,6 +112,91 @@ export class VocabularyService {
     });
     return grouped.map((g) => ({ status: g.status, count: g._count }));
   }
+
+  /**
+   * 词典查询（生词释义真实数据源，绝不虚构）：
+   * 1. 本地 Vocabulary 共享词表缓存命中 → source=cache
+   * 2. dictionaryapi.dev 查音标/英文释义/发音音频 + MyMemory 中译（免费匿名接口，失败留 null）
+   * 3. 结果写回共享词表缓存；查不到 → source=none
+   * 只读缓存写共享词表，不动 UserVocabulary（查询行为不污染用户生词本）。
+   */
+  async lookup(rawWord: string) {
+    const word = rawWord.trim().toLowerCase().slice(0, 80);
+    if (!word) return { word, source: 'none' as const };
+
+    const cached = await this.prisma.vocabulary.findUnique({ where: { word } });
+    if (cached && (cached.phonetic || cached.definitionEn || cached.definitionZh)) {
+      return {
+        word,
+        phonetic: cached.phonetic,
+        definitionEn: cached.definitionEn,
+        definitionZh: cached.definitionZh,
+        audioUrl: null,
+        source: 'cache' as const
+      };
+    }
+
+    let definitionEn: string | null = null;
+    let phonetic: string | null = null;
+    let audioUrl: string | null = null;
+    try {
+      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, {
+        signal: AbortSignal.timeout(8000)
+      });
+      if (res.ok) {
+        const entries = (await res.json()) as DictionaryApiEntry[];
+        const first = entries[0];
+        phonetic = first?.phonetic || first?.phonetics?.find((p) => p.text)?.text || null;
+        audioUrl = first?.phonetics?.find((p) => p.audio)?.audio || null;
+        const defs = (first?.meanings?.[0]?.definitions ?? []).slice(0, 3).map((d) => d.definition);
+        definitionEn = defs.join('; ') || null;
+      } else if (res.status !== 404) {
+        // 限流/服务异常：不缓存、返回 none，客户端可直接重试
+        return { word, source: 'none' as const };
+      }
+    } catch {
+      // 网络不可达：返回 none（不虚构），不写缓存
+      return { word, source: 'none' as const };
+    }
+
+    let definitionZh: string | null = null;
+    if (definitionEn) {
+      try {
+        const tr = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`, {
+          signal: AbortSignal.timeout(8000)
+        });
+        const body = (await tr.json()) as { responseData?: { translatedText?: string } };
+        const text = body.responseData?.translatedText;
+        // MyMemory 查不到时回显原文或给出警告文案：过滤掉，保持「无数据」而非错误数据
+        if (text && !/INVALID|NO QUERY|QUERY LIMIT/i.test(text) && text.toLowerCase() !== word) definitionZh = text;
+      } catch {
+        /* 中译失败留 null */
+      }
+    }
+
+    if (!definitionEn && !definitionZh) return { word, phonetic, source: 'none' as const };
+
+    const saved = await this.prisma.vocabulary.upsert({
+      where: { word },
+      update: { phonetic: phonetic ?? undefined, definitionEn: definitionEn ?? undefined, definitionZh: definitionZh ?? undefined },
+      create: { word, phonetic, definitionEn, definitionZh }
+    });
+    return {
+      word,
+      phonetic: saved.phonetic,
+      definitionEn: saved.definitionEn,
+      definitionZh: saved.definitionZh,
+      audioUrl,
+      source: 'dictionary' as const
+    };
+  }
+}
+
+/** dictionaryapi.dev 响应（仅取用到的字段） */
+interface DictionaryApiEntry {
+  phonetic?: string;
+  phonetics?: { text?: string; audio?: string }[];
+  meanings?: { definitions?: { definition?: string }[] }[];
 }
 
 export class AddVocabularyDto {
@@ -146,6 +231,11 @@ export class VocabularyController {
   @Get('stats')
   stats() {
     return this.service.stats();
+  }
+
+  @Get('lookup/:word')
+  lookup(@Param('word') word: string) {
+    return this.service.lookup(word);
   }
 
   @Post()

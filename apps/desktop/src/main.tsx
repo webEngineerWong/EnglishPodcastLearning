@@ -6,11 +6,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { I18nProvider, ThemeProvider, ToastProvider, useI18n, useToast, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Icon, Spinner, Input, Select, Modal, Tabs, Tooltip, type DisplayMode } from '@elp/ui';
-import { AudioPlayer, formatTime, useAudioEngine, usePlayerState, useKeyboardShortcuts } from '@elp/player';
+import { I18nProvider, ThemeProvider, ToastProvider, useI18n, useToast, BilingualReader, MaterialReader, findActiveParagraph, Button, Card, CardContent, Badge, EmptyState, Icon, Spinner, Input, Select, Modal, Tabs, Tooltip, TrendChart, type DisplayMode } from '@elp/ui';
+import { AudioPlayer, MiniPlayer, PlayerProvider, formatTime, useGlobalPlayer, useKeyboardShortcuts } from '@elp/player';
+import defaultAppIcon from './default-app-icon.png';
 import type { ImportJobDto, NotesDocumentDto, TranscriptParagraphDto } from '@elp/types';
 import { ApiClient } from '@elp/api-client';
 import { desktop } from './bridge';
+import { cachedAudioUrl, warmAudioCache } from './audioCache';
 import '@elp/ui/src/styles/tokens.css';
 import './index.css';
 
@@ -22,11 +24,27 @@ function App() {
       <ThemeProvider>
         <I18nProvider>
           <ToastProvider>
-            <DesktopApp />
+            <PlayerHost>
+              <DesktopApp />
+            </PlayerHost>
           </ToastProvider>
         </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>
+  );
+}
+
+/** 全局播放器宿主：Mini Player 页面切换常驻；学习心跳统一从这里上报 */
+function PlayerHost({ children }: { children: React.ReactNode }) {
+  const api = useApiClient();
+  return (
+    <PlayerProvider
+      heartbeat={(info) =>
+        void api.heartbeat({ courseId: info.courseId, audioAssetId: info.audioAssetId, positionMs: info.positionMs, deltaMs: 5000 }).catch(() => undefined)
+      }
+    >
+      {children}
+    </PlayerProvider>
   );
 }
 
@@ -60,15 +78,12 @@ function useInvalidate() {
   };
 }
 
-// 课程封面：有 coverUrl 用图，否则品牌渐变 + 首字（与 Web 一致）
+// 课程封面：有 coverUrl 用图，否则默认方图封面（与 iOS 端一致）
 function CourseCover({ url, title, className }: { url?: string | null; title: string; className?: string }) {
-  const initial = title.trim().charAt(0).toUpperCase();
   return url ? (
-    <img src={url} alt="" className={'shrink-0 object-cover ' + (className ?? '')} />
+    <img src={url} alt={title} className={'shrink-0 object-cover ' + (className ?? '')} />
   ) : (
-    <div className={'flex shrink-0 select-none items-center justify-center bg-primary font-semibold text-primary-foreground ' + (className ?? '')} aria-hidden>
-      {initial}
-    </div>
+    <img src={defaultAppIcon} alt={title} className={'shrink-0 object-cover ' + (className ?? '')} />
   );
 }
 
@@ -78,6 +93,9 @@ function DesktopApp() {
   const { t } = useI18n();
   const { resolved, setMode } = useThemeCtl();
   const [route, setRoute] = useState<Route>({ page: 'dashboard' });
+  const player = useGlobalPlayer();
+  // Mini Player：页面切换常驻；当前课程详情页隐藏（详情页有完整播放器）
+  const showMini = player.track !== null && !(route.page === 'course' && route.id === player.track.courseId);
   const nav = [
     { page: 'dashboard' as const, name: 'dashboard' as const, label: t('dashboard') },
     { page: 'courses' as const, name: 'library' as const, label: t('courses') },
@@ -108,7 +126,7 @@ function DesktopApp() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className={showMini ? 'flex-1 overflow-y-auto p-6 pb-24' : 'flex-1 overflow-y-auto p-6'}>
         {route.page === 'dashboard' && <Dash onOpenCourse={(id) => setRoute({ page: 'course', id })} onOpenImport={() => setRoute({ page: 'import' })} />}
         {route.page === 'courses' && <Courses onOpenCourse={(id) => setRoute({ page: 'course', id })} />}
         {route.page === 'course' && <CourseDetailPage id={route.id} onBack={() => setRoute({ page: 'courses' })} />}
@@ -116,6 +134,16 @@ function DesktopApp() {
         {route.page === 'vocabulary' && <VocabularyPage />}
         {route.page === 'favorites' && <FavoritesPage />}
       </main>
+      {showMini && player.track && (
+        <MiniPlayer
+          engine={player.engine}
+          state={player.state}
+          track={player.track}
+          onClose={player.close}
+          onOpen={() => player.track && setRoute({ page: 'course', id: player.track.courseId })}
+          leftRem={12.75}
+        />
+      )}
     </div>
   );
 }
@@ -135,6 +163,35 @@ function useThemeCtl() {
 }
 
 // ==================== Dashboard ====================
+
+/** 学习趋势卡：近 7/14/30 天逐日学习时长（Recharts，与 Web 端一致） */
+function TrendCard() {
+  const { t } = useI18n();
+  const api = useApiClient();
+  const [days, setDays] = useState(14);
+  const { data: trend } = useQuery({ queryKey: ['trend', days], queryFn: () => api.getTrend({ days }) });
+
+  return (
+    <Card className="mb-6">
+      <CardContent className="p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Icon name="trendingUp" size="sm" className="text-primary" />
+            {t('learningTrend')}
+          </h2>
+          <div className="flex items-center gap-1">
+            {([7, 14, 30] as const).map((d) => (
+              <Button key={d} size="sm" variant={days === d ? 'active' : 'ghost'} onClick={() => setDays(d)}>
+                {t(d === 7 ? 'last7Days' : d === 14 ? 'last14Days' : 'last30Days')}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {trend ? <TrendChart points={trend} /> : <div className="flex h-52 items-center justify-center"><Spinner /></div>}
+      </CardContent>
+    </Card>
+  );
+}
 
 function Dash({ onOpenCourse, onOpenImport }: { onOpenCourse: (id: string) => void; onOpenImport: () => void }) {
   const { t } = useI18n();
@@ -187,6 +244,7 @@ function Dash({ onOpenCourse, onOpenImport }: { onOpenCourse: (id: string) => vo
           </Card>
         ))}
       </div>
+      <TrendCard />
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardContent className="p-4">
@@ -291,7 +349,7 @@ function Courses({ onOpenCourse }: { onOpenCourse: (id: string) => void }) {
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenCourse(c.id)}>
                     <div className="truncate font-medium group-hover:text-primary">{c.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">{c.categoryName ? c.categoryName + ' · ' : ''}<Icon name="audio" size={11} />{c.audioCount} · L{c.difficulty}</span>
+                      <span className="inline-flex items-center gap-1">{c.categoryName ? c.categoryName + ' · ' : ''}<Icon name="audio" size={11} />{c.playCount != null ? c.playCount + ' 次' : c.audioCount} · L{c.difficulty}</span>
                     </div>
                   </button>
                   <button
@@ -369,8 +427,10 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
   const api = useApiClient();
   const invalidate = useInvalidate();
   const { data: course } = useQuery({ queryKey: ['course', id], queryFn: () => api.getCourse(id) });
-  const engine = useAudioEngine();
-  const state = usePlayerState(engine);
+  // 全局播放器：Mini Player 页面切换常驻，详情页只负责装载曲目
+  const player = useGlobalPlayer();
+  const engine = player.engine;
+  const state = player.state;
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<DisplayMode>('both');
@@ -382,12 +442,31 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
 
   useEffect(() => {
     if (!course || !audio) return;
-    const url = audio.url?.startsWith('http') ? audio.url : 'http://localhost:3001' + audio.url;
-    void engine.load(url, { startMs: course.lastPositionMs ?? 0 });
-    engine.onProgressTick = (pos) => void api.heartbeat({ courseId: id, audioAssetId: audio.id, positionMs: Math.round(pos), deltaMs: 5000 }).catch(() => undefined);
-    return () => {
-      engine.onProgressTick = null;
-    };
+    const remoteUrl = audio.url?.startsWith('http') ? audio.url : 'http://localhost:3001' + audio.url;
+    // 磁盘缓存优先（秒开 + 锁屏/后台续播不耗流量）；未命中远程立即播放并后台静默缓存
+    void (async () => {
+      const cached = await cachedAudioUrl(course.id, audio.id, audio.originalName);
+      const targetUrl = cached ?? remoteUrl;
+      // 同曲目已在全局播放器（Mini Player 切走再回来）：不重载，播放不中断
+      if (player.track?.audioId === audio.id && player.engine.getState().src === targetUrl) return;
+      await player.loadTrack(
+        { courseId: course.id, courseTitle: course.title, audioId: audio.id, audioName: audio.originalName, coverUrl: course.coverUrl ?? null },
+        targetUrl,
+        { startMs: course.lastPositionMs ?? 0, autoplay: false }
+      );
+      if (!cached) warmAudioCache(course.id, audio.id, audio.originalName, remoteUrl);
+    })();
+    // 系统媒体元数据（PC 锁屏 / 系统媒体浮窗 / 蓝牙控制）
+    const cover = course.coverUrl
+      ? course.coverUrl.startsWith('http') ? course.coverUrl : 'http://localhost:3001' + course.coverUrl
+      : undefined;
+    engine.setMediaMetadata({
+      title: audio.originalName || course.title,
+      artist: course.title,
+      album: '英语学习',
+      artwork: cover
+    });
+    // 学习心跳由 PlayerHost 的全局 PlayerProvider 接管
   }, [id, course && audio?.id]);
 
   useEffect(() => {
@@ -519,6 +598,17 @@ function CourseDetailPage({ id, onBack }: { id: string; onBack: () => void }) {
           <Icon name="imagePlus" size={12} />
           设置封面
         </button>
+        {/* 下载音频（签名 URL 直下；本地存储 ?download=1 强制 attachment） */}
+        {audio?.url && (
+          <a
+            href={audio.url.startsWith('http') ? audio.url : api.baseUrl + (audio.url.startsWith('/storage/') ? `${audio.url}?download=1` : audio.url)}
+            download={audio.originalName}
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            <Icon name="arrowDown" size={12} />
+            下载音频
+          </a>
+        )}
         <input
           ref={coverRef}
           type="file"
@@ -1127,7 +1217,22 @@ function VocabularyPage() {
   const api = useApiClient();
   const invalidate = useInvalidate();
   const [search, setSearch] = useState('');
+  const [lookingUp, setLookingUp] = useState<string | null>(null);
   const { data, isLoading } = useQuery({ queryKey: ['vocabulary', search], queryFn: () => api.listVocabulary({ search: search || undefined }) });
+
+  const lookup = async (word: string) => {
+    setLookingUp(word);
+    try {
+      const r = await api.lookupWord(word);
+      if (r.source === 'none') toast(`词典未收录「${word}」`);
+      else toast(r.source === 'cache' ? `${word}：已有词典释义` : `已获取「${word}」释义`, true);
+      invalidate(['vocabulary']);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '查询失败');
+    } finally {
+      setLookingUp(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -1155,6 +1260,16 @@ function VocabularyPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={lookingUp !== null}
+                    onClick={() => void lookup(v.word)}
+                    aria-label={`查词典：${v.word}`}
+                  >
+                    <Icon name="search" size={12} />
+                    {lookingUp === v.word ? '查询中…' : '查词典'}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

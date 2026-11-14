@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, useI18n } from '@elp/ui';
+import { Badge, Button, Card, CardContent, EmptyState, Icon, Input, Select, Spinner, useI18n, useToast } from '@elp/ui';
 import { api } from '@/lib/api';
 import { useInvalidate, useVocabulary } from '@/lib/hooks';
 import { PageHeader } from '@/components/shell';
@@ -12,10 +12,34 @@ export default function VocabularyPage() {
   const [search, setSearch] = useState('');
   const { data, isLoading } = useVocabulary({ status: status || undefined, search: search || undefined });
   const invalidate = useInvalidate();
+  const { show: showToast } = useToast();
+  // 正在查词典的单词（防止重复点击）
+  const [lookingUp, setLookingUp] = useState<string | null>(null);
+
+  const lookup = async (word: string) => {
+    setLookingUp(word);
+    try {
+      const r = await api.lookupWord(word);
+      if (r.source === 'none') showToast(`词典未收录「${word}」`);
+      else showToast(r.source === 'cache' ? `${word}：已有词典释义` : `已获取「${word}」释义`, 'success');
+      invalidate(['vocabulary']);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '查询失败');
+    } finally {
+      setLookingUp(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title={t('vocabulary')} actions={<Button variant="outline" onClick={() => invalidate(['dashboard'])}>⟳</Button>} />
+      <PageHeader
+        title={t('vocabulary')}
+        actions={
+          <Button variant="outline" aria-label="刷新" onClick={() => invalidate(['vocabulary'])}>
+            <Icon name="refresh" size="sm" />
+          </Button>
+        }
+      />
 
       <div className="mb-4 flex gap-2">
         <Input placeholder="搜索单词…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs" />
@@ -58,6 +82,16 @@ export default function VocabularyPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={lookingUp !== null}
+                    onClick={() => void lookup(v.word)}
+                    aria-label={`查词典：${v.word}`}
+                  >
+                    <Icon name="search" size={12} />
+                    {lookingUp === v.word ? '查询中…' : '查词典'}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

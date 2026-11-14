@@ -12,12 +12,13 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
+    "@elp/icons": "workspace:*",
     "@elp/player": "workspace:*",
     "@elp/types": "workspace:*",
     "@radix-ui/react-tooltip": "^1.4.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.71.0",
-    "@elp/icons": "workspace:*"
+    "recharts": "^3.10.1"
   },
   "peerDependencies": {
     "react": ">=18"

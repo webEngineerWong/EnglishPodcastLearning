@@ -9,7 +9,91 @@ import { Icon } from './icons';
 import type { TranscriptParagraphDto } from '@elp/types';
 import { formatTime } from '@elp/player';
 
+// ==================== TODO(DEBUG): 临时诊断（?debug=1），验证后整段删除 ====================
+const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
+let debugLines: string[] = [];
+let debugOverlay: HTMLDivElement | null = null;
+function debugLog(msg: string) {
+  if (!DEBUG) return;
+  console.log('[subtitle-debug]', msg);
+  debugLines = [msg, ...debugLines].slice(0, 6);
+  if (!debugOverlay) {
+    debugOverlay = document.createElement('div');
+    debugOverlay.setAttribute('aria-hidden', 'true');
+    debugOverlay.style.cssText =
+      'position:fixed;top:3.5rem;left:4px;z-index:9999;max-width:92vw;padding:4px 6px;font:10px/1.5 ui-monospace,monospace;background:rgba(0,0,0,.55);color:hsl(var(--success));border-radius:4px;pointer-events:none;white-space:pre-wrap;';
+    document.body.appendChild(debugOverlay);
+  }
+  debugOverlay.textContent = debugLines.join('\n');
+}
+// ==================== TODO(DEBUG) 结束 ====================
+
 export type DisplayMode = 'both' | 'en' | 'zh';
+
+/**
+ * 将元素滚动到视口中央（等价于 scrollIntoView({ block: 'center' })），但用手动 rAF
+ * 动画代替原生 behavior: 'smooth'：
+ * - iOS WebKit 的程序化 smooth 滚动与 sticky/fixed 层组合时，存在动画结束后局部 tile
+ *   不重绘的 bug（列表中部出现一整块与页面背景同色的空白，触碰后恢复）；
+ * - 重复触发的原生 smooth 动画会互相打断，加剧该问题；手动逐帧 scrollTop 走正常
+ *   绘制路径，且新动画开始前先取消上一个（由调用方 effect cleanup 保证）。
+ * - 滚动目标：最近的可滚动祖先（Electron 壳为内部 main 容器，Web 为 window），
+ *   与 scrollIntoView 实际作用的对象一致。
+ * 返回取消函数。
+ */
+function scrollToCenter(el: HTMLElement): () => void {
+  let scroller: HTMLElement | null = null;
+  for (let n = el.parentElement; n; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) {
+      scroller = n;
+      break;
+    }
+  }
+  const isWindow = !scroller;
+  const s: HTMLElement = scroller ?? (document.scrollingElement as HTMLElement) ?? document.documentElement;
+  const scrollerTop = scroller ? scroller.getBoundingClientRect().top : 0;
+  const elRect = el.getBoundingClientRect();
+  const viewH = isWindow ? window.innerHeight : scroller!.clientHeight;
+  const elTopInScroller = elRect.top - scrollerTop + s.scrollTop;
+  const maxTop = Math.max(0, s.scrollHeight - viewH);
+  const target = Math.min(maxTop, Math.max(0, elTopInScroller - (viewH - elRect.height) / 2));
+
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    s.scrollTop = target;
+    return () => undefined;
+  }
+
+  const from = s.scrollTop;
+  const dist = target - from;
+  if (Math.abs(dist) < 1) return () => undefined;
+
+  let raf = 0;
+  const listenTarget: HTMLElement | Window = isWindow ? window : scroller!;
+  const removeListeners = () => {
+    listenTarget.removeEventListener('touchmove', onUserScroll);
+    listenTarget.removeEventListener('wheel', onUserScroll);
+  };
+  const cancel = () => {
+    cancelAnimationFrame(raf);
+    removeListeners();
+  };
+  // 用户手势滚动时立即让位，不与手动滚动冲突（passive，不拦截手势本身）
+  const onUserScroll = () => cancel();
+  listenTarget.addEventListener('touchmove', onUserScroll, { passive: true });
+  listenTarget.addEventListener('wheel', onUserScroll, { passive: true });
+
+  const dur = Math.min(480, 200 + Math.abs(dist) * 0.3);
+  const t0 = performance.now();
+  const step = (now: number) => {
+    const p = Math.min(1, (now - t0) / dur);
+    s.scrollTop = from + dist * (1 - Math.pow(1 - p, 3));
+    if (p < 1) raf = requestAnimationFrame(step);
+    else cancel();
+  };
+  raf = requestAnimationFrame(step);
+  return cancel;
+}
 
 export interface BilingualReaderProps {
   paragraphs: TranscriptParagraphDto[];
@@ -41,15 +125,24 @@ export function BilingualReaderImpl({
   const activeRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (autoScroll && activeParagraphId && activeRef.current) {
-      activeRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
-  }, [activeParagraphId, autoScroll]);
+    const el = activeRef.current;
+    if (!autoScroll || !activeParagraphId || !el) return;
+    // TODO(DEBUG): 跟随目标与位置日志（与文件头部 DEBUG 段一起删除）
+    const doc = document.scrollingElement ?? document.documentElement;
+    const idx = paragraphs.findIndex((p) => p.id === activeParagraphId);
+    debugLog(
+      `follow -> idx=${idx} id=…${activeParagraphId.slice(-6)} scrollY=${Math.round(window.scrollY)} scrollTop=${Math.round(doc.scrollTop)} viewH=${window.innerHeight} docH=${doc.scrollHeight}`
+    );
+    return scrollToCenter(el);
+  }, [activeParagraphId, autoScroll, paragraphs]);
 
   return (
-    <div className={clsx('space-y-1', className)}>
+    <div
+      className={clsx('space-y-1', className)}
+      style={DEBUG ? { outline: '2px solid rgba(34,211,238,.9)', outlineOffset: '-2px', background: 'rgba(34,211,238,.06)' } : undefined}
+    >
       {paragraphs.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">—</div>}
-      {paragraphs.map((p) => {
+      {paragraphs.map((p, i) => {
         const active = p.id === activeParagraphId;
         const hasTime = typeof p.startTimeMs === 'number';
         const isHeading = p.type === 'HEADING';
@@ -57,6 +150,11 @@ export function BilingualReaderImpl({
           <div
             key={p.id}
             ref={active ? activeRef : undefined}
+            style={
+              DEBUG
+                ? { outline: '1px solid rgba(244,63,94,.85)', outlineOffset: '-1px', background: i % 2 ? 'rgba(244,63,94,.08)' : 'rgba(59,130,246,.08)' }
+                : undefined
+            }
             className={clsx(
               'group rounded-md border px-3 py-2 transition-colors',
               active ? 'border-l-2 border-l-primary bg-accent/60' : 'border-l-2 border-l-transparent hover:bg-muted/50',

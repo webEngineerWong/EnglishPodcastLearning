@@ -12,6 +12,7 @@ import { ProgressModule } from './progress/progress.module';
 import { StatsModule } from './stats/stats.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { VocabularyModule } from './vocabulary/vocabulary.module';
+import { LearningModule } from './learning/learning.module';
 
 @Module({
   imports: [
@@ -27,7 +28,8 @@ import { VocabularyModule } from './vocabulary/vocabulary.module';
     ProgressModule,
     StatsModule,
     FavoritesModule,
-    VocabularyModule
+    VocabularyModule,
+    LearningModule
   ]
 })
 export class AppModule {}

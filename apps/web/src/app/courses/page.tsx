@@ -155,7 +155,7 @@ function CourseCard({
   course,
   onDelete
 }: {
-  course: { id: string; title: string; description?: string | null; difficulty: number; tags: string[]; categoryName?: string | null; favorite?: boolean; audioCount: number; lastLearnedAt?: string | null; coverUrl?: string | null };
+  course: { id: string; title: string; description?: string | null; difficulty: number; tags: string[]; categoryName?: string | null; favorite?: boolean; audioCount: number; playCount?: number; lastLearnedAt?: string | null; coverUrl?: string | null };
   onDelete: () => void;
 }) {
   const { t } = useI18n();
@@ -186,7 +186,7 @@ function CourseCard({
           {course.categoryName && <Badge tone="muted">{course.categoryName}</Badge>}
           <Badge tone="muted">
             <Icon name="audio" size={11} className="mr-1" />
-            {course.audioCount}
+            {course.playCount != null ? `${course.playCount} 次` : course.audioCount}
           </Badge>
           {course.tags.slice(0, 3).map((tag) => (
             <Badge key={tag} tone="muted">

@@ -23,6 +23,10 @@ export function useDashboard() {
   return useQuery({ queryKey: ['dashboard'], queryFn: () => api.getDashboardStats(), refetchInterval: 60_000 });
 }
 
+export function useTrend(days: number) {
+  return useQuery({ queryKey: ['trend', days], queryFn: () => api.getTrend({ days }) });
+}
+
 export function useImportJobs(page = 1) {
   return useQuery({ queryKey: ['importJobs', page], queryFn: () => api.listImportJobs({ page, limit: 20 }) });
 }

@@ -23,7 +23,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <ToastProvider>
             <PlayerProvider
               heartbeat={(info) =>
-                void api.heartbeat({ courseId: info.courseId, audioAssetId: info.audioAssetId, positionMs: info.positionMs, deltaMs: 5000 }).catch(() => undefined)
+                // isPlaying=true：桌面播放也喂负一屏状态总线（多端一致）
+                void api
+                  .heartbeat({
+                    courseId: info.courseId,
+                    audioAssetId: info.audioAssetId,
+                    positionMs: info.positionMs,
+                    deltaMs: 5000,
+                    isPlaying: info.isPlaying,
+                    courseTitle: info.courseTitle
+                  })
+                  .catch(() => undefined)
               }
             >
               <AppShell>{children}</AppShell>

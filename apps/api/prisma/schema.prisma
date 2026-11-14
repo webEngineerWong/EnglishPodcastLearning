@@ -94,6 +94,23 @@ model User {
   sessions        LearningSession[]
   userVocabulary  UserVocabulary[]
   importJobs      ImportJob[]
+  activities      LearningActivity[]
+}
+
+/// 学习行为停留时长（按 用户 + 本地日期 + 行为类型 聚合秒数）
+model LearningActivity {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 本地时区日期键 YYYY-MM-DD
+  date      String
+  /// listening | reading | vocab | notes
+  activity  String
+  seconds   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, activity])
+  @@index([userId, date])
 }
 
 model Category {

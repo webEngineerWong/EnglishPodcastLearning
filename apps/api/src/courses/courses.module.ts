@@ -15,8 +15,8 @@ const COURSE_INCLUDE_BASE = {
   _count: { select: { audios: true } }
 } as const;
 
-/** 列表/详情通用的封面地址（coverKey 存在时生成签名 URL） */
-async function coverUrlOf(storage: StorageService, coverKey: string | null): Promise<string | null> {
+/** 列表/详情通用的封面地址（coverKey 存在时生成签名 URL）；stats 等模块复用 */
+export async function coverUrlOf(storage: StorageService, coverKey: string | null): Promise<string | null> {
   return coverKey ? storage.getSignedUrl(coverKey, 7200) : null;
 }
 
@@ -81,6 +81,14 @@ export class CoursesService {
     });
     const progressMap = new Map(progress.map((p) => [p.courseId, p]));
 
+    // 真实播放次数：LearningSession 每 30 分钟连续心跳归一，每次回听开新会话 +1
+    const sessionCounts = await this.prisma.learningSession.groupBy({
+      by: ['courseId'],
+      where: { courseId: { in: rows.map((r) => r.id) } },
+      _count: { _all: true }
+    });
+    const playCountMap = new Map(sessionCounts.map((s) => [s.courseId, s._count._all]));
+
     const items = await Promise.all(
       rows.map(async (c) => ({
         id: c.id,
@@ -92,6 +100,7 @@ export class CoursesService {
         categoryId: c.categoryId,
         categoryName: c.category?.name ?? null,
         audioCount: c._count.audios,
+        playCount: playCountMap.get(c.id) ?? 0,
         favorite: favSet.has(c.id),
         lastLearnedAt: progressMap.get(c.id)?.lastLearnedAt ?? null,
         lastPositionMs: progressMap.get(c.id)?.positionMs ?? null,
@@ -210,6 +219,7 @@ export class CoursesService {
       categoryId: c.categoryId,
       categoryName: c.category?.name ?? null,
       audioCount: c.audios.length,
+      playCount: await this.prisma.learningSession.count({ where: { courseId: id } }),
       favorite,
       lastLearnedAt: progress?.lastLearnedAt ?? null,
       lastPositionMs: progress?.positionMs ?? null,
@@ -279,12 +289,21 @@ export class CoursesService {
 
   async remove(id: string) {
     await this.ensure(id);
-    // 级联清理存储文件
+    // 内容寻址存储：同一物理文件可能被其它课程的资产或 ImportFile 原始存档共享，
+    // 只有在无任何其它引用时才物理删除（此前无条件删除曾把共用文件删掉，导致其余课程播放与导入重试 ENOENT）。
     const assets = await this.prisma.audioAsset.findMany({ where: { courseId: id }, select: { storageKey: true } });
     const docs = await this.prisma.documentAsset.findMany({ where: { courseId: id }, select: { storageKey: true } });
+    const keys = [...new Set([...assets.map((a) => a.storageKey), ...docs.map((d) => d.storageKey)])];
     await this.prisma.course.delete({ where: { id } });
-    for (const key of [...assets.map((a) => a.storageKey), ...docs.map((d) => d.storageKey)]) {
-      await this.storage.delete(key);
+    for (const key of keys) {
+      const [otherAssets, otherDocs, importFiles] = await Promise.all([
+        this.prisma.audioAsset.count({ where: { storageKey: key } }),
+        this.prisma.documentAsset.count({ where: { storageKey: key } }),
+        this.prisma.importFile.count({ where: { storageKey: key } })
+      ]);
+      if (otherAssets === 0 && otherDocs === 0 && importFiles === 0) {
+        await this.storage.delete(key);
+      }
     }
     return { deleted: true };
   }

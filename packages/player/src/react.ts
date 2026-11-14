@@ -21,6 +21,10 @@ export interface HeartbeatInfo {
   courseId: string;
   audioAssetId: string;
   positionMs: number;
+  /** 播放状态（onProgressTick 仅在播放中触发，恒为 true） */
+  isPlaying?: boolean;
+  /** 课程标题（负一屏显示用） */
+  courseTitle?: string;
 }
 
 interface GlobalPlayerCtx {
@@ -56,12 +60,12 @@ export function PlayerProvider({
   const trackRef = useRef<PlayerTrack | null>(track);
   trackRef.current = track;
 
-  // 心跳：引擎 5s 节流 tick 交给应用层 API（曲目存在才上报）
+  // 心跳：引擎 5s 节流 tick 交给应用层 API（曲目存在才上报；带播放状态喂负一屏总线）
   useEffect(() => {
     engine.onProgressTick = (positionMs) => {
       const cur = trackRef.current;
       if (!cur) return;
-      heartbeatRef.current?.({ courseId: cur.courseId, audioAssetId: cur.audioId, positionMs: Math.round(positionMs) });
+      heartbeatRef.current?.({ courseId: cur.courseId, audioAssetId: cur.audioId, positionMs: Math.round(positionMs), isPlaying: true, courseTitle: cur.courseTitle });
     };
     return () => {
       engine.onProgressTick = null;

@@ -10,7 +10,7 @@ import {
   Captions, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleAlert, Copy,
   File, FileText, FileUp, Film, Gauge, Headphones, House, ImagePlus, Inbox, Library, LoaderCircle, Moon,
   Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Repeat, Repeat1, RotateCcw, RotateCw, ScanSearch,
-  Scissors, Search, Settings2, SkipBack, SkipForward, Star, Sun, Timer, Trash2, Volume2, VolumeX, X
+  Scissors, Search, Settings2, SkipBack, SkipForward, Star, Sun, Timer, Trash2, TrendingUp, Volume2, VolumeX, X
 } from 'lucide-react';
 
 export const ICONS = {
@@ -21,6 +21,7 @@ export const ICONS = {
   favorites: Bookmark,
   audio: Headphones,
   audioFile: AudioLines,
+  trendingUp: TrendingUp,
   pdf: FileText,
   srt: Captions,
   video: Film,

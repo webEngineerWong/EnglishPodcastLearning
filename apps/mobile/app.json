@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "英语学习",
+    "name": "EnglishPodcast",
     "slug": "english-learning-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,7 @@
     "scheme": "elp",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.myenglishlearning.app",
+      "bundleIdentifier": "com.zubulun.englishhub",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -19,7 +19,10 @@
             }
           }
         },
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {
@@ -36,7 +39,15 @@
     },
     "plugins": [
       "expo-dev-client",
-      ["expo-audio", { "microphonePermission": false }]
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false
+        }
+      ],
+      [
+        "./plugins/with-live-activity-widget.js"
+      ]
     ]
   }
 }

@@ -1,0 +1,6 @@
+{
+  "name": "live-activity",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ActivityKit Live Activity 本地 Expo 模块（iOS 专属，供灵动岛/锁屏进度展示）"
+}

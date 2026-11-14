@@ -129,6 +129,8 @@ export interface CourseListItem {
   categoryId?: ID | null;
   categoryName?: string | null;
   audioCount: number;
+  /** 真实播放次数（LearningSession 会话数：30 分钟连续心跳归一，每次回听 +1） */
+  playCount?: number;
   favorite?: boolean;
   lastLearnedAt?: string | null;
   lastPositionMs?: number | null;
@@ -174,6 +176,14 @@ export interface HeartbeatPayload {
   positionMs: number;
   /** 距上次心跳经过的学习时长，毫秒 */
   deltaMs: number;
+  /** 播放状态（缺省 = 仅保存进度，不影响负一屏播放状态） */
+  isPlaying?: boolean;
+  /** 课程标题（负一屏显示用） */
+  courseTitle?: string;
+  /** 播放倍速（负一屏进度插值用） */
+  rate?: number;
+  /** 音频总时长，毫秒（负一屏进度条分母） */
+  durationMs?: number | null;
 }
 
 export interface LearningSessionDto {
@@ -204,6 +214,26 @@ export interface DashboardStatsDto {
   recentCourses: CourseListItem[];
   recentSessions: LearningSessionDto[];
   recentImports: ImportJobDto[];
+}
+
+/** 学习趋势单日数据（本地时区归日） */
+export interface TrendPointDto {
+  /** YYYY-MM-DD（本地日期） */
+  date: string;
+  /** 当日学习时长毫秒 */
+  ms: number;
+}
+
+/** 词典查询结果（真实数据源，查不到时字段为 null，不虚构） */
+export interface WordLookupDto {
+  word: string;
+  phonetic?: string | null;
+  /** 词典发音音频 URL（仅本次在线查询返回，缓存命中无此字段） */
+  audioUrl?: string | null;
+  definitionEn?: string | null;
+  definitionZh?: string | null;
+  /** 数据来源：cache=本地缓存 / dictionary=词典 API / none=未查到 */
+  source: 'cache' | 'dictionary' | 'none';
 }
 
 // ---------- 导入 ----------
@@ -273,6 +303,12 @@ export interface DesktopBridge {
   readLocalFile: (path: string, maxBytes?: number) => Promise<{ name: string; data: ArrayBuffer }>;
   /** API 基地址（桌面端可配置） */
   getApiBaseUrl: () => Promise<string>;
+  /** 音频磁盘缓存：查询是否已缓存 */
+  resolveAudioCache: (key: string) => Promise<{ cached: boolean }>;
+  /** 音频磁盘缓存：后台下载（进行中复用同一任务） */
+  downloadAudioCache: (url: string, key: string) => Promise<{ ok: boolean; sizeBytes: number }>;
+  /** 音频磁盘缓存：读取缓存字节（未缓存时 reject） */
+  readAudioCache: (key: string) => Promise<ArrayBuffer>;
   onTrayCommand: (handler: (cmd: string) => void) => () => void;
   getPlatform: () => Promise<string>;
 }

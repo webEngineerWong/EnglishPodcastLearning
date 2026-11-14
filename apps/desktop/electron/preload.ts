@@ -12,6 +12,13 @@ const api = {
     ipcRenderer.invoke('fs:read-file', path, maxBytes) as Promise<{ name: string; data: ArrayBuffer }>,
   getApiBaseUrl: () => ipcRenderer.invoke('app:api-base-url') as Promise<string>,
   getPlatform: () => ipcRenderer.invoke('app:platform') as Promise<string>,
+  /** 音频磁盘缓存：查询是否已缓存 */
+  resolveAudioCache: (key: string) => ipcRenderer.invoke('audio-cache:resolve', key) as Promise<{ cached: boolean }>,
+  /** 音频磁盘缓存：后台下载（进行中复用同一任务），不阻塞播放 */
+  downloadAudioCache: (url: string, key: string) =>
+    ipcRenderer.invoke('audio-cache:fetch', url, key) as Promise<{ ok: boolean; sizeBytes: number }>,
+  /** 音频磁盘缓存：读取缓存字节（未缓存时 reject） */
+  readAudioCache: (key: string) => ipcRenderer.invoke('audio-cache:read', key) as Promise<ArrayBuffer>,
   /** 托盘/全局快捷键命令订阅，返回取消函数 */
   onTrayCommand: (handler: (cmd: string) => void) => {
     const listener = (_e: unknown, cmd: string) => handler(cmd);
